@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useMessageStore } from "@/store/chat.store.js";
 import {
   ChevronDown,
@@ -11,6 +11,7 @@ import {
   LogOut,
   Settings,
   Search,
+  Trash2,
 } from "lucide-react";
 
 const Chat = () => {
@@ -37,6 +38,7 @@ const Chat = () => {
     createRoom,
     joinRoom,
     leaveRoom,
+    deleteRoom,
     clearError,
   } = useMessageStore();
 
@@ -49,6 +51,11 @@ const Chat = () => {
   const [showCreateRoom, setShowCreateRoom] = useState(false);
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const [searchUsers, setSearchUsers] = useState("");
+  const [leavingRoomId, setLeavingRoomId] = useState(null);
+  const [deletingRoomId, setDeletingRoomId] = useState(null);
+  const [notifications, setNotifications] = useState([]);
+  const [showSettingsDropdown, setShowSettingsDropdown] = useState(false);
+  const settingsRef = useRef(null);
 
   useEffect(() => {
     const setup = async () => {
@@ -73,6 +80,74 @@ const Chat = () => {
     console.log("Rooms:", rooms);
     console.log("Current Room:", currentRoom);
   }, [messages, user, selectedUsers, rooms, currentRoom]);
+
+  // Auto-clear errors after 5 seconds
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => clearError(), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error, clearError]);
+
+  // Handle userLeftRoom and roomDeleted notifications
+  useEffect(() => {
+    const socket = useMessageStore.getState().socket;
+    if (socket) {
+      const handleUserLeftRoom = ({ username, roomId, roomName }) => {
+        if (String(roomId) === String(currentRoom)) {
+          setNotifications((prev) => [
+            ...prev,
+            {
+              id: Date.now(),
+              message: `${username} left ${roomName}`,
+              type: "info",
+            },
+          ]);
+        }
+      };
+      const handleRoomDeleted = ({ roomId, roomName, message }) => {
+        if (String(roomId) === String(currentRoom)) {
+          setNotifications((prev) => [
+            ...prev,
+            {
+              id: Date.now(),
+              message,
+              type: message.includes("You have successfully deleted")
+                ? "success"
+                : "warning",
+            },
+          ]);
+        }
+      };
+      socket.on("userLeftRoom", handleUserLeftRoom);
+      socket.on("roomDeleted", handleRoomDeleted);
+      return () => {
+        socket.off("userLeftRoom", handleUserLeftRoom);
+        socket.off("roomDeleted", handleRoomDeleted);
+      };
+    }
+  }, [currentRoom]);
+
+  // Auto-clear notifications after 5 seconds
+  useEffect(() => {
+    if (notifications.length > 0) {
+      const timer = setTimeout(() => {
+        setNotifications((prev) => prev.slice(1));
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [notifications]);
+
+  // Close settings dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (settingsRef.current && !settingsRef.current.contains(event.target)) {
+        setShowSettingsDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const handleSendMessage = (e) => {
     e.preventDefault();
@@ -134,6 +209,7 @@ const Chat = () => {
     setRoomName("");
     clearSelectedUsers();
     setShowCreateRoom(false);
+    setSearchUsers("");
   };
 
   const handleJoinRoom = (roomId) => {
@@ -142,19 +218,49 @@ const Chat = () => {
 
   const handleLeaveRoom = (roomId) => {
     if (confirm("Are you sure you want to leave this room?")) {
+      setLeavingRoomId(roomId);
       leaveRoom(roomId);
+      setNotifications((prev) => [
+        ...prev,
+        {
+          id: Date.now(),
+          message: "You have left the room",
+          type: "success",
+        },
+      ]);
+      setTimeout(() => setLeavingRoomId(null), 1000);
+      setShowSettingsDropdown(false);
+    }
+  };
+
+  const handleDeleteRoom = (roomId) => {
+    if (confirm("Are you sure you want to delete this room? This action cannot be undone.")) {
+      setDeletingRoomId(roomId);
+      deleteRoom(roomId);
+      setNotifications((prev) => [
+        ...prev,
+        {
+          id: Date.now(),
+          message: "You have deleted the room",
+          type: "success",
+        },
+      ]);
+      setTimeout(() => setDeletingRoomId(null), 1000);
+      setShowSettingsDropdown(false);
     }
   };
 
   const filteredUsers = companyUsers.filter(
-    (user) =>
-      user.firstName.toLowerCase().includes(searchUsers.toLowerCase()) ||
-      user.position.toLowerCase().includes(searchUsers.toLowerCase())
+    (u) =>
+      u.firstName.toLowerCase().includes(searchUsers.toLowerCase()) ||
+      u.position.toLowerCase().includes(searchUsers.toLowerCase())
   );
 
   const roomMessages = messages.filter(
     (msg) => String(msg.roomId) === String(currentRoom)
   );
+
+  const currentRoomData = rooms.find((r) => String(r.roomId) === String(currentRoom)) || {};
 
   if (isLoading) {
     return (
@@ -409,16 +515,25 @@ const Chat = () => {
                       {currentRoom === room.roomId ? (
                         <button
                           onClick={() => handleLeaveRoom(room.roomId)}
-                          className="text-red-500 hover:text-red-700 p-1"
+                          className={`text-red-500 hover:text-red-700 p-1 ${
+                            leavingRoomId === room.roomId ? "opacity-50 cursor-not-allowed" : ""
+                          }`}
                           title="Leave room"
+                          disabled={leavingRoomId === room.roomId}
+                          aria-label="Leave room"
                         >
-                          <LogOut size={14} />
+                          {leavingRoomId === room.roomId ? (
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-500"></div>
+                          ) : (
+                            <LogOut size={14} />
+                          )}
                         </button>
                       ) : (
                         <button
                           onClick={() => handleJoinRoom(room.roomId)}
                           className="text-blue-500 hover:text-blue-700 p-1"
                           title="Join room"
+                          aria-label="Join room"
                         >
                           <UserPlus size={14} />
                         </button>
@@ -497,11 +612,55 @@ const Chat = () => {
                   online
                 </p>
               </div>
-              <div className="flex items-center space-x-2">
-                <Settings
-                  size={20}
-                  className="text-gray-400 cursor-pointer hover:text-gray-600"
-                />
+              <div className="flex items-center space-x-2" ref={settingsRef}>
+                <button
+                  onClick={() => setShowSettingsDropdown(!showSettingsDropdown)}
+                  className="text-gray-400 hover:text-gray-600 p-1 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  aria-label="Room settings"
+                  aria-expanded={showSettingsDropdown}
+                >
+                  <Settings size={20} />
+                </button>
+                {showSettingsDropdown && (
+                  <div className="absolute top-14 right-4 bg-white border border-gray-300 rounded-lg shadow-lg z-10 w-48">
+                    {currentRoom !== `company_${user.companyId}` && (
+                      <>
+                        <button
+                          onClick={() => handleLeaveRoom(currentRoom)}
+                          className={`w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center ${
+                            leavingRoomId === currentRoom ? "opacity-50 cursor-not-allowed" : ""
+                          }`}
+                          disabled={leavingRoomId === currentRoom}
+                          aria-label="Leave current room"
+                        >
+                          {leavingRoomId === currentRoom ? (
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-500 mr-2"></div>
+                          ) : (
+                            <LogOut size={16} className="mr-2" />
+                          )}
+                          Leave Room
+                        </button>
+                        {currentRoomData.creator === user.userId && (
+                          <button
+                            onClick={() => handleDeleteRoom(currentRoom)}
+                            className={`w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center ${
+                              deletingRoomId === currentRoom ? "opacity-50 cursor-not-allowed" : ""
+                            }`}
+                            disabled={deletingRoomId === currentRoom}
+                            aria-label="Delete current room"
+                          >
+                            {deletingRoomId === currentRoom ? (
+                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-500 mr-2"></div>
+                            ) : (
+                              <Trash2 size={16} className="mr-2" />
+                            )}
+                            Delete Room
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -652,6 +811,60 @@ const Chat = () => {
                     <X size={16} />
                   </button>
                 </div>
+              </div>
+            )}
+
+            {/* Notifications */}
+            {notifications.length > 0 && (
+              <div className="fixed top-4 left-4 space-y-2 max-w-md">
+                {notifications.map((notification) => (
+                  <div
+                    key={notification.id}
+                    className={`bg-${
+                      notification.type === "success"
+                        ? "green"
+                        : notification.type === "warning"
+                        ? "yellow"
+                        : "blue"
+                    }-100 border border-${
+                      notification.type === "success"
+                        ? "green"
+                        : notification.type === "warning"
+                        ? "yellow"
+                        : "blue"
+                    }-400 text-${
+                      notification.type === "success"
+                        ? "green"
+                        : notification.type === "warning"
+                        ? "yellow"
+                        : "blue"
+                    }-700 px-4 py-3 rounded-lg shadow-lg flex justify-between items-center`}
+                  >
+                    <span className="text-sm">{notification.message}</span>
+                    <button
+                      onClick={() =>
+                        setNotifications((prev) =>
+                          prev.filter((n) => n.id !== notification.id)
+                        )
+                      }
+                      className={`ml-3 text-${
+                        notification.type === "success"
+                          ? "green"
+                          : notification.type === "warning"
+                          ? "yellow"
+                          : "blue"
+                      }-500 hover:text-${
+                        notification.type === "success"
+                          ? "green"
+                          : notification.type === "warning"
+                          ? "yellow"
+                          : "blue"
+                      }-700 font-bold`}
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
           </div>

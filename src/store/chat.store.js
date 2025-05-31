@@ -259,16 +259,18 @@ export const useMessageStore = create((set, get) => ({
     if (socket && socket.connected) {
       console.log(`📤 [Leaving room] roomId=${roomId}`);
       socket.emit("leaveRoom", roomId);
-      set((state) => ({
-        currentRoom: state.currentRoom === roomId ? null : state.currentRoom,
-        groupName: state.currentRoom === roomId ? "Group Chat" : state.groupName,
-        onlineUsers: state.currentRoom === roomId ? [] : state.onlineUsers,
-        isTyping: state.currentRoom === roomId ? {} : state.isTyping,
-        messages: state.currentRoom === roomId 
-          ? state.messages.filter((msg) => String(msg.roomId) !== String(roomId))
-          : state.messages,
-        error: null,
-      }));
+    } else {
+      set({ error: "Socket not connected" });
+    }
+  },
+  deleteRoom: (roomId) => {
+    if (!roomId) {
+      set({ error: "Room ID is required" });
+      return;
+    }
+    if (socket && socket.connected) {
+      console.log(`📤 [Deleting room] roomId=${roomId}`);
+      socket.emit("deleteRoom", roomId);
     } else {
       set({ error: "Socket not connected" });
     }
@@ -284,12 +286,17 @@ export const useMessageStore = create((set, get) => ({
         console.log("✅ Socket connected");
         const token = Cookies.get("token");
         if (token) {
-          const user = jwt.verify(token, process.env.JWT_SECRET);
-          if (user?.companyId) {
-            set({
-              groupName: `Company ${user.companyId} Chat`,
-              currentRoom: `company_${user.companyId}`,
-            });
+          try {
+            const user = jwt.verify(token, process.env.JWT_SECRET);
+            if (user?.companyId) {
+              set({
+                groupName: `Company ${user.companyId} Chat`,
+                currentRoom: `company_${user.companyId}`,
+              });
+            }
+          } catch (error) {
+            console.error("Error verifying token:", error.message);
+            set({ error: "Invalid token" });
           }
         }
       });
@@ -449,6 +456,7 @@ export const useMessageStore = create((set, get) => ({
                   roomId: String(room.roomId),
                   roomName: room.roomName,
                   users: room.users.map((u) => String(u)),
+                  creator: room.creator ? String(room.creator) : null,
                 },
               ],
               selectedUsers: [], // Clear selected users after room creation
@@ -482,8 +490,28 @@ export const useMessageStore = create((set, get) => ({
         }
       });
 
-      socket.on("userLeft", ({ userId, username, roomId }) => {
-        console.log(`📥 [userLeft Received]: ${username} (${userId}) in room=${roomId}`);
+      socket.on("roomLeft", ({ success, message, data }) => {
+        console.log(`📥 [roomLeft Received]:`, { success, message, data });
+        if (success && data && data.roomId) {
+          set((state) => ({
+            rooms: state.rooms.filter((r) => String(r.roomId) !== String(data.roomId)),
+            currentRoom: state.currentRoom === data.roomId ? null : state.currentRoom,
+            groupName: state.currentRoom === data.roomId ? "Group Chat" : state.groupName,
+            onlineUsers: state.currentRoom === data.roomId ? [] : state.onlineUsers,
+            isTyping: state.currentRoom === data.roomId ? {} : state.isTyping,
+            messages: state.currentRoom === data.roomId 
+              ? state.messages.filter((msg) => String(msg.roomId) !== String(data.roomId))
+              : state.messages,
+            error: null,
+          }));
+        } else {
+          console.error("Invalid roomLeft data:", { success, message, data });
+          set({ error: "Received invalid room left confirmation data" });
+        }
+      });
+
+      socket.on("userLeftRoom", ({ userId, username, roomId, roomName }) => {
+        console.log(`📥 [userLeftRoom Received]: ${username} (${userId}) left room=${roomId}`);
         const { currentRoom } = get();
         if (String(roomId) === String(currentRoom) && userId) {
           set((state) => ({
@@ -493,20 +521,23 @@ export const useMessageStore = create((set, get) => ({
             isTyping: Object.fromEntries(
               Object.entries(state.isTyping).filter(([id]) => String(id) !== String(userId))
             ),
+            error: null,
           }));
         } else {
-          console.warn("Invalid userLeft data or wrong room", {
+          console.warn("Invalid userLeftRoom data or wrong room", {
             userId,
             username,
             roomId,
+            roomName,
           });
         }
       });
 
-      socket.on("leaveConfirmation", ({ roomId }) => {
-        console.log(`📥 [leaveConfirmation Received]: roomId=${roomId}`);
+      socket.on("roomDeleted", ({ roomId, roomName, message }) => {
+        console.log(`📥 [roomDeleted Received]: roomId=${roomId}, roomName=${roomName}`);
         if (roomId) {
           set((state) => ({
+            rooms: state.rooms.filter((r) => String(r.roomId) !== String(roomId)),
             currentRoom: state.currentRoom === roomId ? null : state.currentRoom,
             groupName: state.currentRoom === roomId ? "Group Chat" : state.groupName,
             onlineUsers: state.currentRoom === roomId ? [] : state.onlineUsers,
@@ -517,19 +548,19 @@ export const useMessageStore = create((set, get) => ({
             error: null,
           }));
         } else {
-          console.error("Invalid leaveConfirmation data:", roomId);
-          set({ error: "Received invalid leave confirmation data" });
+          console.error("Invalid roomDeleted data: missing roomId", { roomId, roomName, message });
+          set({ error: "Received invalid room deletion data: missing roomId" });
         }
-      });
-
-      socket.on("disconnect", () => {
-        console.log("❌ Socket disconnected");
-        set({ onlineUsers: [], isTyping: {}, currentRoom: null, groupName: "Group Chat" });
       });
 
       socket.on("errorMessage", (msg) => {
         console.log("❌ [errorMessage Received]:", msg);
         set({ error: msg });
+      });
+
+      socket.on("disconnect", () => {
+        console.log("❌ Socket disconnected");
+        set({ onlineUsers: [], isTyping: {}, currentRoom: null, groupName: "Group Chat" });
       });
     }
   },
