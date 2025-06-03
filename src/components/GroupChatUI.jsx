@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useMemo } from "react";
 import { useMessageStore } from "@/store/chat.store.js";
 import {
   ChevronDown,
@@ -12,9 +12,16 @@ import {
   Settings,
   Search,
   Trash2,
+  Paperclip,
+  Download,
+  Mic,
+  StopCircle,
 } from "lucide-react";
 
-const Chat = () => {
+// Counter for generating unique notification IDs
+let notificationIdCounter = 0;
+
+const GroupChatUI = () => {
   const {
     messages,
     error,
@@ -40,6 +47,17 @@ const Chat = () => {
     leaveRoom,
     deleteRoom,
     clearError,
+    uploadedFiles,
+    uploadFile,
+    uploadProgress,
+    requestFile,
+    downloadProgress,
+    downloadError,
+    uploadedVoices,
+    uploadVoice,
+    requestVoice,
+    deleteFile,
+    deleteVoice,
   } = useMessageStore();
 
   const [messageContent, setMessageContent] = useState("");
@@ -55,11 +73,21 @@ const Chat = () => {
   const [deletingRoomId, setDeletingRoomId] = useState(null);
   const [notifications, setNotifications] = useState([]);
   const [showSettingsDropdown, setShowSettingsDropdown] = useState(false);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [downloadingFileId, setDownloadingFileId] = useState(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordedAudio, setRecordedAudio] = useState(null);
+  const [downloadingVoiceId, setDownloadingVoiceId] = useState(null);
+  const [deletingFileId, setDeletingFileId] = useState(null);
   const settingsRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
 
   useEffect(() => {
     const setup = async () => {
-      console.log("Setting up Chat component...");
+      console.log("Setting up GroupChatUI component...");
       await fetchUser();
       await fetchCompanyUsers();
       initializeSocket();
@@ -79,27 +107,65 @@ const Chat = () => {
     console.log("Selected Users:", selectedUsers);
     console.log("Rooms:", rooms);
     console.log("Current Room:", currentRoom);
-  }, [messages, user, selectedUsers, rooms, currentRoom]);
+    console.log("Uploaded Files:", uploadedFiles);
+    console.log("Uploaded Voices:", uploadedVoices);
+    console.log("All Items:", allItems);
+    console.log("Upload Progress:", uploadProgress);
+    console.log("Download Progress:", downloadProgress);
+    console.log("Download Error:", downloadError || "");
+    console.log("Notifications:", notifications);
+  }, [
+    messages,
+    user,
+    selectedUsers,
+    rooms,
+    currentRoom,
+    uploadedFiles,
+    uploadedVoices,
+    uploadProgress,
+    downloadProgress,
+    downloadError,
+    notifications,
+  ]);
 
-  // Auto-clear errors after 5 seconds
   useEffect(() => {
     if (error) {
-      const timer = setTimeout(() => clearError(), 5000);
+      setNotifications((prev) => [
+        ...prev,
+        {
+          id: `notif-${Date.now()}-${notificationIdCounter++}`,
+          message: error,
+          type: "error",
+        },
+      ]);
+      const timer = setTimeout(() => clearError(), 3600);
       return () => clearTimeout(timer);
     }
   }, [error, clearError]);
 
-  // Handle userLeftRoom and roomDeleted notifications
+  useEffect(() => {
+    if (downloadError) {
+      setNotifications((prev) => [
+        ...prev,
+        {
+          id: `notif-${Date.now()}-${notificationIdCounter++}`,
+          message: downloadError,
+          type: "error",
+        },
+      ]);
+    }
+  }, [downloadError]);
+
   useEffect(() => {
     const socket = useMessageStore.getState().socket;
     if (socket) {
-      const handleUserLeftRoom = ({ username, roomId, roomName }) => {
+      const handleUserLeftRoom = ({ username, roomId }) => {
         if (String(roomId) === String(currentRoom)) {
           setNotifications((prev) => [
             ...prev,
             {
-              id: Date.now(),
-              message: `${username} left ${roomName}`,
+              id: `notif-${Date.now()}-${notificationIdCounter++}`,
+              message: `${username} left the room`,
               type: "info",
             },
           ]);
@@ -110,7 +176,7 @@ const Chat = () => {
           setNotifications((prev) => [
             ...prev,
             {
-              id: Date.now(),
+              id: `notif-${Date.now()}-${notificationIdCounter++}`,
               message,
               type: message.includes("You have successfully deleted")
                 ? "success"
@@ -119,16 +185,73 @@ const Chat = () => {
           ]);
         }
       };
+      const handleNewVoice = (voice) => {
+        console.log("📥 [New voice message received]:", voice);
+        if (
+          voice &&
+          voice._id &&
+          voice.roomId &&
+          voice.voice &&
+          voice.voice.url &&
+          String(voice.roomId) === String(currentRoom)
+        ) {
+          useMessageStore.setState((prev) => {
+            if (
+              prev.uploadedVoices.some(
+                (v) => String(v._id) === String(voice._id)
+              )
+            ) {
+              console.log("Voice already exists, skipping:", voice._id);
+              return prev;
+            }
+            console.log("Adding voice to uploadedVoices:", voice);
+            return {
+              uploadedVoices: [
+                ...prev.uploadedVoices,
+                {
+                  _id: String(voice._id),
+                  message: voice.message || "Voice message uploaded",
+                  userId: String(voice.userId || "unknown"),
+                  username: voice.username || "Anonymous",
+                  roomId: String(voice.roomId),
+                  timestamp: voice.timestamp || new Date().toISOString(),
+                  voice: {
+                    filename: voice.voice.filename,
+                    originalName:
+                      voice.voice.originalName || voice.voice.filename,
+                    mimeType: voice.voice.mimeType || "audio/webm",
+                    size: voice.voice.size || 0,
+                    url: voice.voice.url,
+                  },
+                },
+              ],
+            };
+          });
+          setNotifications((prev) => [
+            ...prev,
+            {
+              id: `notif-${Date.now()}-${notificationIdCounter++}`,
+              message: `New voice message from ${
+                voice.username || "Anonymous"
+              }`,
+              type: "info",
+            },
+          ]);
+        } else {
+          console.warn("Invalid or irrelevant voice data:", voice);
+        }
+      };
       socket.on("userLeftRoom", handleUserLeftRoom);
       socket.on("roomDeleted", handleRoomDeleted);
+      socket.on("newVoice", handleNewVoice);
       return () => {
         socket.off("userLeftRoom", handleUserLeftRoom);
         socket.off("roomDeleted", handleRoomDeleted);
+        socket.off("newVoice", handleNewVoice);
       };
     }
   }, [currentRoom]);
 
-  // Auto-clear notifications after 5 seconds
   useEffect(() => {
     if (notifications.length > 0) {
       const timer = setTimeout(() => {
@@ -138,7 +261,6 @@ const Chat = () => {
     }
   }, [notifications]);
 
-  // Close settings dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (settingsRef.current && !settingsRef.current.contains(event.target)) {
@@ -148,6 +270,83 @@ const Chat = () => {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorderRef.current = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+
+      mediaRecorderRef.current.ondataavailable = (event) => {
+        audioChunksRef.current.push(event.data);
+      };
+
+      mediaRecorderRef.current.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, {
+          type: "audio/webm",
+        });
+        const audioFile = new File([audioBlob], `voice-${Date.now()}.webm`, {
+          type: "audio/webm",
+        });
+        setRecordedAudio(audioFile);
+        stream.getTracks().forEach((track) => track.stop());
+      };
+
+      mediaRecorderRef.current.start();
+      setIsRecording(true);
+      console.log("🎙️ Recording started");
+    } catch (error) {
+      console.error("Error starting recording:", error.message);
+      setNotifications((prev) => [
+        ...prev,
+        {
+          id: `notif-${Date.now()}-${notificationIdCounter++}`,
+          message: `Failed to start recording: ${error.message}`,
+          type: "error",
+        },
+      ]);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      console.log("🎙️ Recording stopped");
+    }
+  };
+
+  const handleDeleteFile = (fileId) => {
+    if (confirm("Are you sure you want to delete this file?")) {
+      setDeletingFileId(fileId);
+      deleteFile(String(fileId));
+      setNotifications((prev) => [
+        ...prev,
+        {
+          id: `notif-${Date.now()}-${notificationIdCounter++}`,
+          message: "File deleted successfully",
+          type: "success",
+        },
+      ]);
+      setTimeout(() => setDeletingFileId(null), 1000);
+    }
+  };
+
+  const handleDeleteVoice = (voiceId) => {
+    if (confirm("Are you sure you want to delete this voice message?")) {
+      setDeletingFileId(voiceId);
+      deleteVoice(String(voiceId));
+      setNotifications((prev) => [
+        ...prev,
+        {
+          id: `notif-${Date.now()}-${notificationIdCounter++}`,
+          message: "Voice message deleted successfully",
+          type: "success",
+        },
+      ]);
+      setTimeout(() => setDeletingFileId(null), 1000);
+    }
+  };
 
   const handleSendMessage = (e) => {
     e.preventDefault();
@@ -165,8 +364,14 @@ const Chat = () => {
   const handleSaveEdit = (e, messageId) => {
     e.preventDefault();
     if (!editContent.trim()) {
-      clearError();
-      useMessageStore.setState({ error: "Edited message cannot be empty" });
+      setNotifications((prev) => [
+        ...prev,
+        {
+          id: `notif-${Date.now()}-${notificationIdCounter++}`,
+          message: "Edited message cannot be empty",
+          type: "error",
+        },
+      ]);
       return;
     }
     editMessage(String(messageId), editContent);
@@ -195,13 +400,25 @@ const Chat = () => {
   const handleCreateRoom = (e) => {
     e.preventDefault();
     if (!roomName.trim()) {
-      useMessageStore.setState({ error: "Room name is required" });
+      setNotifications((prev) => [
+        ...prev,
+        {
+          id: `notif-${Date.now()}-${notificationIdCounter++}`,
+          message: "Room name is required",
+          type: "error",
+        },
+      ]);
       return;
     }
     if (selectedUsers.length === 0) {
-      useMessageStore.setState({
-        error: "Select at least one user for the room",
-      });
+      setNotifications((prev) => [
+        ...prev,
+        {
+          id: `notif-${Date.now()}-${notificationIdCounter++}`,
+          message: "Select at least one user for the room",
+          type: "error",
+        },
+      ]);
       return;
     }
     const userIds = selectedUsers.map((u) => u.userId);
@@ -223,7 +440,7 @@ const Chat = () => {
       setNotifications((prev) => [
         ...prev,
         {
-          id: Date.now(),
+          id: `notif-${Date.now()}-${notificationIdCounter++}`,
           message: "You have left the room",
           type: "success",
         },
@@ -234,13 +451,17 @@ const Chat = () => {
   };
 
   const handleDeleteRoom = (roomId) => {
-    if (confirm("Are you sure you want to delete this room? This action cannot be undone.")) {
+    if (
+      confirm(
+        "Are you sure you want to delete this room? This action cannot be undone."
+      )
+    ) {
       setDeletingRoomId(roomId);
       deleteRoom(roomId);
       setNotifications((prev) => [
         ...prev,
         {
-          id: Date.now(),
+          id: `notif-${Date.now()}-${notificationIdCounter++}`,
           message: "You have deleted the room",
           type: "success",
         },
@@ -250,6 +471,205 @@ const Chat = () => {
     }
   };
 
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      console.log("Selected file:", file.name, file.size, file.type);
+      setSelectedFile(file);
+    } else {
+      setSelectedFile(null);
+    }
+  };
+
+  const handleUploadFile = async (e) => {
+    e.preventDefault();
+    if (!selectedFile) {
+      setNotifications((prev) => [
+        ...prev,
+        {
+          id: `notif-${Date.now()}-${notificationIdCounter++}`,
+          message: "No file selected for upload",
+          type: "error",
+        },
+      ]);
+      return;
+    }
+    if (!currentRoom) {
+      setNotifications((prev) => [
+        ...prev,
+        {
+          id: `notif-${Date.now()}-${notificationIdCounter++}`,
+          message: "Please join a room to upload files",
+          type: "error",
+        },
+      ]);
+      return;
+    }
+    if (!(selectedFile instanceof File)) {
+      console.error("Invalid file object:", selectedFile);
+      setNotifications((prev) => [
+        ...prev,
+        {
+          id: `notif-${Date.now()}-${notificationIdCounter++}`,
+          message: "Invalid file object",
+          type: "error",
+        },
+      ]);
+      return;
+    }
+    console.log(
+      "📤 [Uploading file] name:",
+      selectedFile.name,
+      "size:",
+      selectedFile.size,
+      "type:",
+      selectedFile.type
+    );
+    try {
+      setIsUploading(true);
+      await uploadFile(selectedFile, (progress) => {
+        console.log(`Upload progress: ${progress}%`);
+      });
+      setNotifications((prev) => [
+        ...prev,
+        {
+          id: `notif-${Date.now()}-${notificationIdCounter++}`,
+          message: `File "${selectedFile.name}" uploaded successfully`,
+          type: "success",
+        },
+      ]);
+      setSelectedFile(null);
+      fileInputRef.current.value = "";
+      console.log("File upload completed successfully");
+    } catch (error) {
+      console.error("File upload error:", error.message, error.response?.data);
+      setNotifications((prev) => [
+        ...prev,
+        {
+          id: `notif-${Date.now()}-${notificationIdCounter++}`,
+          message: `Failed to upload file: ${
+            error.response?.data?.error || error.message
+          }`,
+          type: "error",
+        },
+      ]);
+    } finally {
+      setIsUploading(false);
+      console.log("Upload process finished, isUploading set to false");
+    }
+  };
+
+  const handleVoiceUpload = async (e) => {
+    e.preventDefault();
+    if (!recordedAudio) {
+      setNotifications((prev) => [
+        ...prev,
+        {
+          id: `notif-${Date.now()}-${notificationIdCounter++}`,
+          message: "No voice recording selected for upload",
+          type: "error",
+        },
+      ]);
+      return;
+    }
+    if (!currentRoom) {
+      setNotifications((prev) => [
+        ...prev,
+        {
+          id: `notif-${Date.now()}-${notificationIdCounter++}`,
+          message: "Please join a room to upload voice messages",
+          type: "error",
+        },
+      ]);
+      return;
+    }
+    if (!(recordedAudio instanceof File)) {
+      console.error("Invalid voice object:", recordedAudio);
+      setNotifications((prev) => [
+        ...prev,
+        {
+          id: `notif-${Date.now()}-${notificationIdCounter++}`,
+          message: "Invalid voice object",
+          type: "error",
+        },
+      ]);
+      return;
+    }
+    console.log(
+      "📤 [Uploading voice] name:",
+      recordedAudio.name,
+      "size:",
+      recordedAudio.size,
+      "type:",
+      recordedAudio.type
+    );
+    try {
+      setIsUploading(true);
+      await uploadVoice(recordedAudio, (progress) => {
+        console.log(`Voice upload progress: ${progress}%`);
+      });
+      setNotifications((prev) => [
+        ...prev,
+        {
+          id: `notif-${Date.now()}-${notificationIdCounter++}`,
+          message: `Voice message "${recordedAudio.name}" uploaded successfully`,
+          type: "success",
+        },
+      ]);
+      setRecordedAudio(null);
+      console.log("Voice upload completed successfully");
+    } catch (error) {
+      console.error("Voice upload error:", error.message, error.response?.data);
+      setNotifications((prev) => [
+        ...prev,
+        {
+          id: `notif-${Date.now()}-${notificationIdCounter++}`,
+          message: `Failed to upload voice: ${
+            error.response?.data?.error || error.message
+          }`,
+          type: "error",
+        },
+      ]);
+    } finally {
+      setIsUploading(false);
+      console.log("Voice upload process finished, isUploading set to false");
+    }
+  };
+
+  const handleFileClick = (fileId) => {
+    setDownloadingFileId(fileId);
+    requestFile(fileId);
+    const file = uploadedFiles.find((f) => String(f._id) === String(fileId));
+    if (file) {
+      setNotifications((prev) => [
+        ...prev,
+        {
+          id: `notif-${Date.now()}-${notificationIdCounter++}`,
+          message: `Downloading ${file.file.originalName}...`,
+          type: "info",
+        },
+      ]);
+    }
+    setTimeout(() => setDownloadingFileId(null), 1000);
+  };
+
+  const handleVoiceClick = (voiceId) => {
+    setDownloadingVoiceId(voiceId);
+    requestVoice(voiceId);
+    const voice = uploadedVoices.find((v) => String(v._id) === String(voiceId));
+    if (voice) {
+      setNotifications((prev) => [
+        ...prev,
+        {
+          id: `notif-${Date.now()}-${notificationIdCounter++}`,
+          message: `Downloading ${voice.voice.originalName}...`,
+          type: "info",
+        },
+      ]);
+    }
+    setTimeout(() => setDownloadingVoiceId(null), 1000);
+  };
+
   const filteredUsers = companyUsers.filter(
     (u) =>
       u.firstName.toLowerCase().includes(searchUsers.toLowerCase()) ||
@@ -257,10 +677,75 @@ const Chat = () => {
   );
 
   const roomMessages = messages.filter(
-    (msg) => String(msg.roomId) === String(currentRoom)
+    (msg) =>
+      String(msg.roomId) === String(currentRoom) && !msg.voice && !msg.file
   );
 
-  const currentRoomData = rooms.find((r) => String(r.roomId) === String(currentRoom)) || {};
+  const roomFiles = uploadedFiles.filter(
+    (file) => String(file.roomId) === String(currentRoom)
+  );
+
+  const roomVoices = uploadedVoices.filter(
+    (voice) => String(voice.roomId) === String(currentRoom)
+  );
+
+  const allItems = useMemo(() => {
+    const seenIds = new Set();
+    const items = [];
+
+    // Add messages (text only)
+    roomMessages.forEach((msg) => {
+      if (!seenIds.has(String(msg._id))) {
+        items.push({
+          type: "message",
+          id: msg._id,
+          userId: msg.userId,
+          username: msg.username,
+          content: msg.message,
+          timestamp: msg.timestamp || Date.now(),
+          updatedAt: msg.updatedAt,
+        });
+        seenIds.add(String(msg._id));
+      }
+    });
+
+    // Add files
+    roomFiles.forEach((file) => {
+      if (!seenIds.has(String(file._id))) {
+        items.push({
+          type: "file",
+          id: file._id,
+          userId: file.userId,
+          username: file.username,
+          content: file.message,
+          file: file.file,
+          timestamp: file.timestamp || Date.now(),
+        });
+        seenIds.add(String(file._id));
+      }
+    });
+
+    // Add voices
+    roomVoices.forEach((voice) => {
+      if (!seenIds.has(String(voice._id))) {
+        items.push({
+          type: "voice",
+          id: voice._id,
+          userId: voice.userId,
+          username: voice.username,
+          content: voice.message,
+          voice: voice.voice,
+          timestamp: voice.timestamp || Date.now(),
+        });
+        seenIds.add(String(voice._id));
+      }
+    });
+
+    return items.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+  }, [roomMessages, roomFiles, roomVoices]);
+
+  const currentRoomData =
+    rooms.find((r) => String(r.roomId) === String(currentRoom)) || {};
 
   if (isLoading) {
     return (
@@ -290,9 +775,7 @@ const Chat = () => {
 
   return (
     <div className="flex h-screen bg-gray-50">
-      {/* Sidebar */}
       <div className="w-80 bg-white border-r border-gray-200 flex flex-col shadow-lg">
-        {/* Sidebar Header */}
         <div className="p-6 border-b border-gray-200 bg-gradient-to-r from-blue-600 to-indigo-600 text-white">
           <div className="flex items-center justify-between mb-4">
             <h1 className="text-xl font-bold flex items-center">
@@ -309,8 +792,6 @@ const Chat = () => {
           </div>
           <div className="text-sm opacity-90">Welcome, {user.firstName}</div>
         </div>
-
-        {/* Create Room Form */}
         {showCreateRoom && (
           <div className="p-4 border-b border-gray-200 bg-blue-50">
             <div className="space-y-3">
@@ -323,8 +804,6 @@ const Chat = () => {
                   className="w-full p-3 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
-
-              {/* User Selection Dropdown */}
               <div className="relative">
                 <button
                   type="button"
@@ -345,7 +824,6 @@ const Chat = () => {
                     }`}
                   />
                 </button>
-
                 {showUserDropdown && (
                   <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-300 rounded-lg shadow-lg z-10 max-h-60 overflow-hidden">
                     <div className="p-2 border-b border-gray-200">
@@ -404,8 +882,6 @@ const Chat = () => {
                   </div>
                 )}
               </div>
-
-              {/* Selected Users Display */}
               {selectedUsers.length > 0 && (
                 <div className="space-y-2">
                   <div className="text-sm font-medium text-gray-700">
@@ -430,7 +906,6 @@ const Chat = () => {
                   </div>
                 </div>
               )}
-
               <div className="flex space-x-2">
                 <button
                   onClick={handleCreateRoom}
@@ -454,17 +929,13 @@ const Chat = () => {
             </div>
           </div>
         )}
-
-        {/* Rooms List */}
         <div className="flex-1 overflow-y-auto">
           <div className="p-4">
             <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center">
               <Users className="mr-2" size={16} />
               Available Rooms
             </h3>
-
             <div className="space-y-2">
-              {/* Company Chat Room */}
               <div
                 className={`p-3 rounded-lg cursor-pointer transition-all ${
                   currentRoom === `company_${user.companyId}`
@@ -487,8 +958,6 @@ const Chat = () => {
                   )}
                 </div>
               </div>
-
-              {/* Custom Rooms */}
               {rooms.map((room) => (
                 <div
                   key={room.roomId}
@@ -516,7 +985,9 @@ const Chat = () => {
                         <button
                           onClick={() => handleLeaveRoom(room.roomId)}
                           className={`text-red-500 hover:text-red-700 p-1 ${
-                            leavingRoomId === room.roomId ? "opacity-50 cursor-not-allowed" : ""
+                            leavingRoomId === room.roomId
+                              ? "opacity-50 cursor-not-allowed"
+                              : ""
                           }`}
                           title="Leave room"
                           disabled={leavingRoomId === room.roomId}
@@ -542,7 +1013,6 @@ const Chat = () => {
                   </div>
                 </div>
               ))}
-
               {rooms.length === 0 && (
                 <div className="text-center py-8 text-gray-500">
                   <Users size={24} className="mx-auto mb-2 opacity-50" />
@@ -552,8 +1022,6 @@ const Chat = () => {
               )}
             </div>
           </div>
-
-          {/* Online Users */}
           {onlineUsers.length > 0 && (
             <div className="p-4 border-t border-gray-200">
               <h3 className="text-sm font-semibold text-gray-700 mb-3">
@@ -583,8 +1051,6 @@ const Chat = () => {
           )}
         </div>
       </div>
-
-      {/* Chat Container */}
       {!currentRoom ? (
         <div className="flex-1 flex items-center justify-center bg-gray-50">
           <div className="text-center max-w-md">
@@ -599,7 +1065,6 @@ const Chat = () => {
         </div>
       ) : (
         <div className="flex-1 flex flex-col">
-          {/* Chat Header */}
           <div className="bg-white border-b border-gray-200 p-4 shadow-sm">
             <div className="flex items-center justify-between">
               <div>
@@ -608,8 +1073,8 @@ const Chat = () => {
                   {groupName}
                 </h2>
                 <p className="text-sm text-gray-500">
-                  {onlineUsers.length} user{onlineUsers.length !== 1 ? "s" : ""}{" "}
-                  online
+                  {onlineUsers.length} user
+                  {onlineUsers.length !== 1 ? "s" : ""} online
                 </p>
               </div>
               <div className="flex items-center space-x-2" ref={settingsRef}>
@@ -628,7 +1093,9 @@ const Chat = () => {
                         <button
                           onClick={() => handleLeaveRoom(currentRoom)}
                           className={`w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center ${
-                            leavingRoomId === currentRoom ? "opacity-50 cursor-not-allowed" : ""
+                            leavingRoomId === currentRoom
+                              ? "opacity-50 cursor-not-allowed"
+                              : ""
                           }`}
                           disabled={leavingRoomId === currentRoom}
                           aria-label="Leave current room"
@@ -644,7 +1111,9 @@ const Chat = () => {
                           <button
                             onClick={() => handleDeleteRoom(currentRoom)}
                             className={`w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center ${
-                              deletingRoomId === currentRoom ? "opacity-50 cursor-not-allowed" : ""
+                              deletingRoomId === currentRoom
+                                ? "opacity-50 cursor-not-allowed"
+                                : ""
                             }`}
                             disabled={deletingRoomId === currentRoom}
                             aria-label="Delete current room"
@@ -664,55 +1133,58 @@ const Chat = () => {
               </div>
             </div>
           </div>
-
-          {/* Messages */}
           <div className="flex-1 p-4 overflow-y-auto bg-gray-50">
-            {roomMessages.length === 0 ? (
+            {allItems.length === 0 ? (
               <div className="text-center py-12">
                 <MessageCircle
                   size={48}
                   className="mx-auto mb-4 text-gray-300"
                 />
-                <p className="text-gray-500 font-medium">No messages yet</p>
+                <p className="text-gray-500 font-medium">
+                  No messages, files, or voice messages yet
+                </p>
                 <p className="text-gray-400 text-sm">
-                  Be the first to say something!
+                  Be the first to say something or upload a file/voice message!
                 </p>
               </div>
             ) : (
               <div className="space-y-4">
-                {roomMessages.map((msg) =>
-                  !msg._id || !msg.userId ? null : (
+                {allItems.map((item) =>
+                  !item.id || !item.userId ? null : (
                     <div
-                      key={msg._id}
+                      key={`${item.id}-${item.type}`}
                       className={`flex ${
-                        String(msg.userId) === String(user.userId)
+                        String(item.userId) === String(user.userId)
                           ? "justify-end"
                           : "justify-start"
                       }`}
                     >
                       <div
                         className={`max-w-[70%] rounded-lg p-4 shadow-sm ${
-                          String(msg.userId) === String(user.userId)
+                          String(item.userId) === String(user.userId)
                             ? "bg-blue-600 text-white"
                             : "bg-white text-gray-900"
                         } ${
-                          isDeleting === msg._id ? "opacity-50" : ""
+                          isDeleting === item.id || deletingFileId === item.id
+                            ? "opacity-50"
+                            : ""
                         } transition-all hover:shadow-md`}
                       >
                         <div className="flex justify-between items-start">
                           <div className="flex-1">
                             <p
                               className={`text-sm font-medium mb-1 ${
-                                String(msg.userId) === String(user.userId)
+                                String(item.userId) === String(user.userId)
                                   ? "text-blue-100"
                                   : "text-gray-600"
                               }`}
                             >
-                              {msg.username || "Anonymous"}
+                              {item.username || "Anonymous"}
                             </p>
-                            {editingMessageId === msg._id ? (
+                            {item.type === "message" &&
+                            editingMessageId === item.id ? (
                               <form
-                                onSubmit={(e) => handleSaveEdit(e, msg._id)}
+                                onSubmit={(e) => handleSaveEdit(e, item.id)}
                                 className="space-y-2"
                               >
                                 <input
@@ -743,44 +1215,135 @@ const Chat = () => {
                                 </div>
                               </form>
                             ) : (
-                              <p className="text-sm">{msg.message}</p>
+                              <>
+                                <p className="text-sm">{item.content}</p>
+                                {item.type === "file" && item.file && (
+                                  <div className="flex items-center space-x-2 mt-2">
+                                    <a
+                                      href="#"
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        handleFileClick(item.id);
+                                      }}
+                                      className={`text-sm flex items-center space-x-1 ${
+                                        String(item.userId) ===
+                                        String(user.userId)
+                                          ? "text-blue-200 hover:underline"
+                                          : "text-blue-600 hover:underline"
+                                      }`}
+                                    >
+                                      <Download size={14} />
+                                      <span>
+                                        {item.file.originalName} (
+                                        {(item.file.size / 1024).toFixed(2)} KB)
+                                      </span>
+                                    </a>
+                                    {downloadingFileId === item.id &&
+                                      downloadProgress > 0 && (
+                                        <span className="text-xs text-gray-400">
+                                          ({downloadProgress}%)
+                                        </span>
+                                      )}
+                                  </div>
+                                )}
+                                {item.type === "voice" && item.voice && (
+                                  <div className="flex flex-col space-y-2 mt-2">
+                                    <audio
+                                      controls
+                                      src={item.voice.url}
+                                      className="w-full max-w-xs"
+                                    />
+                                    <div className="flex items-center space-x-2">
+                                      <a
+                                        href="#"
+                                        onClick={(e) => {
+                                          e.preventDefault();
+                                          handleVoiceClick(item.id);
+                                        }}
+                                        className={`text-sm flex items-center space-x-1 ${
+                                          String(item.userId) ===
+                                          String(user.userId)
+                                            ? "text-blue-200 hover:underline"
+                                            : "text-blue-600 hover:underline"
+                                        }`}
+                                      >
+                                        <Download size={14} />
+                                        <span>
+                                          {item?.voice?.originalName ||
+                                            "Voice message"}{" "}
+                                          (
+                                          {(item?.voice?.size / 1024).toFixed(
+                                            2
+                                          )}{" "}
+                                          KB)
+                                        </span>
+                                      </a>
+                                      {downloadingVoiceId === item.id &&
+                                        downloadProgress > 0 && (
+                                          <span className="text-xs text-gray-400">
+                                            ({downloadProgress}%)
+                                          </span>
+                                        )}
+                                    </div>
+                                  </div>
+                                )}
+                              </>
                             )}
                             <div
                               className={`text-xs mt-2 ${
-                                String(msg.userId) === String(user.userId)
+                                String(item.userId) === String(user.userId)
                                   ? "text-blue-200"
                                   : "text-gray-400"
                               }`}
                             >
-                              {new Date(
-                                msg.timestamp || Date.now()
-                              ).toLocaleTimeString()}
-                              {msg.updatedAt && (
-                                <span className="ml-2 italic">(edited)</span>
+                              {new Date(item.timestamp).toLocaleTimeString()}
+                              {item.updatedAt && (
+                                <span className="ml-2 italic"> (edited)</span>
                               )}
                             </div>
                           </div>
-                          {String(msg.userId) === String(user.userId) &&
-                            editingMessageId !== msg._id && (
+                          {String(item.userId) === String(user.userId) &&
+                            (item.type === "message" ? (
+                              editingMessageId !== item.id && (
+                                <div className="ml-3 flex space-x-2">
+                                  <button
+                                    onClick={() =>
+                                      handleEditMessage(item.id, item.content)
+                                    }
+                                    className="text-blue-200 hover:underline text-xs"
+                                    disabled={isDeleting === item.id}
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteMessage(item.id)}
+                                    className="text-blue-200 hover:underline text-xs"
+                                    disabled={isDeleting === item.id}
+                                  >
+                                    Delete
+                                  </button>
+                                </div>
+                              )
+                            ) : (
                               <div className="ml-3 flex space-x-2">
                                 <button
+                                  type="button"
                                   onClick={() =>
-                                    handleEditMessage(msg._id, msg.message)
+                                    item.type === "file"
+                                      ? handleDeleteFile(item.id)
+                                      : handleDeleteVoice(item.id)
                                   }
-                                  className="text-blue-200 hover:text-white text-xs"
-                                  disabled={isDeleting === msg._id}
+                                  className="text-blue-200 hover:underline text-xs"
+                                  disabled={deletingFileId === item.id}
                                 >
-                                  Edit
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteMessage(msg._id)}
-                                  className="text-blue-200 hover:text-white text-xs"
-                                  disabled={isDeleting === msg._id}
-                                >
-                                  Delete
+                                  {deletingFileId === item.id ? (
+                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-200"></div>
+                                  ) : (
+                                    "Delete"
+                                  )}
                                 </button>
                               </div>
-                            )}
+                            ))}
                         </div>
                       </div>
                     </div>
@@ -788,8 +1351,6 @@ const Chat = () => {
                 )}
               </div>
             )}
-
-            {/* Typing Indicator */}
             {Object.keys(isTyping).length > 0 && (
               <div className="text-sm text-gray-500 italic mt-4 px-4">
                 {Object.values(isTyping)
@@ -798,23 +1359,6 @@ const Chat = () => {
                 {Object.values(isTyping).length > 1 ? "are" : "is"} typing...
               </div>
             )}
-
-            {/* Error Display */}
-            {error && (
-              <div className="fixed top-4 right-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg shadow-lg max-w-md">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm">{error}</span>
-                  <button
-                    onClick={clearError}
-                    className="ml-3 text-red-500 hover:text-red-700 font-bold"
-                  >
-                    <X size={16} />
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Notifications */}
             {notifications.length > 0 && (
               <div className="fixed top-4 left-4 space-y-2 max-w-md">
                 {notifications.map((notification) => (
@@ -825,18 +1369,24 @@ const Chat = () => {
                         ? "green"
                         : notification.type === "warning"
                         ? "yellow"
+                        : notification.type === "error"
+                        ? "red"
                         : "blue"
                     }-100 border border-${
                       notification.type === "success"
                         ? "green"
                         : notification.type === "warning"
                         ? "yellow"
+                        : notification.type === "error"
+                        ? "red"
                         : "blue"
                     }-400 text-${
                       notification.type === "success"
                         ? "green"
                         : notification.type === "warning"
                         ? "yellow"
+                        : notification.type === "error"
+                        ? "red"
                         : "blue"
                     }-700 px-4 py-3 rounded-lg shadow-lg flex justify-between items-center`}
                   >
@@ -852,12 +1402,16 @@ const Chat = () => {
                           ? "green"
                           : notification.type === "warning"
                           ? "yellow"
+                          : notification.type === "error"
+                          ? "red"
                           : "blue"
                       }-500 hover:text-${
                         notification.type === "success"
                           ? "green"
                           : notification.type === "warning"
                           ? "yellow"
+                          : notification.type === "error"
+                          ? "red"
                           : "blue"
                       }-700 font-bold`}
                     >
@@ -868,8 +1422,6 @@ const Chat = () => {
               </div>
             )}
           </div>
-
-          {/* Message Input */}
           <form
             onSubmit={handleSendMessage}
             className="p-4 bg-white border-t border-gray-200"
@@ -883,6 +1435,57 @@ const Chat = () => {
                 className="flex-1 p-3 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-gray-50"
                 disabled={!currentRoom}
               />
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileChange}
+                className="hidden"
+                disabled={!currentRoom || isUploading}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current.click()}
+                className="text-gray-400 hover:text-gray-600 p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={!currentRoom || isUploading}
+                aria-label="Upload file"
+              >
+                <Paperclip size={20} />
+              </button>
+              <button
+                type="button"
+                onClick={isRecording ? stopRecording : startRecording}
+                className={`text-gray-400 hover:text-gray-600 p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed ${
+                  isRecording ? "text-red-500 hover:text-red-600" : ""
+                }`}
+                disabled={!currentRoom || isUploading}
+                aria-label={isRecording ? "Stop recording" : "Start recording"}
+              >
+                {isRecording ? <StopCircle size={20} /> : <Mic size={20} />}
+              </button>
+              <button
+                type="button"
+                onClick={handleUploadFile}
+                className="bg-green-600 text-white px-4 py-3 rounded-lg text-sm font-medium hover:bg-green-700 disabled:bg-green-300 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
+                disabled={!selectedFile || !currentRoom || isUploading}
+              >
+                {isUploading && !recordedAudio ? (
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                ) : (
+                  <span>Upload File</span>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={handleVoiceUpload}
+                className="bg-green-600 text-white px-4 py-3 rounded-lg text-sm font-medium hover:bg-green-700 disabled:bg-green-300 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
+                disabled={!recordedAudio || !currentRoom || isUploading}
+              >
+                {isUploading && recordedAudio ? (
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                ) : (
+                  <span>Upload Voice</span>
+                )}
+              </button>
               <button
                 type="submit"
                 className="bg-blue-600 text-white px-6 py-3 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
@@ -891,6 +1494,61 @@ const Chat = () => {
                 <span>Send</span>
               </button>
             </div>
+            {selectedFile && (
+              <div className="mt-2 text-sm text-gray-600 flex items-center">
+                <span>Selected File: {selectedFile.name}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedFile(null);
+                    fileInputRef.current.value = "";
+                  }}
+                  className="ml-2 text-red-500 hover:text-red-700"
+                  aria-label="Cancel file selection"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            )}
+            {recordedAudio && (
+              <div className="mt-2 text-sm text-gray-600 flex items-center">
+                <span>Recorded: {recordedAudio.name}</span>
+                <button
+                  type="button"
+                  onClick={() => setRecordedAudio(null)}
+                  className="ml-2 text-red-500 hover:text-red-700"
+                  aria-label="Cancel voice recording"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            )}
+            {isUploading && (
+              <div className="mt-2">
+                <progress
+                  value={uploadProgress}
+                  max="100"
+                  className="w-full h-2 rounded bg-gray-200"
+                />
+                <span className="text-xs text-gray-600">
+                  {uploadProgress}% (Uploading{" "}
+                  {recordedAudio ? "Voice" : "File"})
+                </span>
+              </div>
+            )}
+            {downloadProgress > 0 && (
+              <div className="mt-2">
+                <progress
+                  value={downloadProgress}
+                  max="100"
+                  className="w-full h-2 rounded bg-gray-200"
+                />
+                <span className="text-xs text-gray-600">
+                  Downloading {downloadProgress}% (
+                  {downloadingVoiceId ? "Voice" : "File"})
+                </span>
+              </div>
+            )}
           </form>
         </div>
       )}
@@ -898,4 +1556,4 @@ const Chat = () => {
   );
 };
 
-export default Chat;
+export default GroupChatUI;

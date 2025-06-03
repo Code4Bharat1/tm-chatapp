@@ -9,6 +9,8 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@ffmpeg/core": "^0.12.10",
+    "@ffmpeg/ffmpeg": "^0.12.15",
     "axios": "^1.9.0",
     "js-cookie": "^3.0.5",
     "jsonwebtoken": "^9.0.2",
