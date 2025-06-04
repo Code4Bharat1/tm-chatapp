@@ -231,164 +231,226 @@ export const useMessageStore = create((set, get) => ({
       set({ error: "Socket not connected" });
     }
   },
-
   joinRoom: async (roomId) => {
-    if (!roomId) {
-      set({ error: "Room ID is required" });
-      console.log("❌ joinRoom: Room ID missing");
-      return;
-    }
-    if (socket && socket.connected) {
-      console.log(`📤 [Joining room] roomId=${roomId}`);
-      socket.emit("joinRoom", roomId);
+    try {
+      set({ error: null });
+      console.log(`📩 [Joining Room]: ${roomId}`);
 
-      try {
-        // Fetch all data concurrently
-        const [messagesResponse, voicesResponse, filesResponse] =
-          await Promise.all([
-            fetch(`http://localhost:8080/api/messages?roomId=${roomId}`, {
-              method: "GET",
-              credentials: "include",
-            }),
-            fetch(`http://localhost:8080/api/get/voice/${roomId}`, {
-              method: "GET",
-              credentials: "include",
-            }),
-            fetch(`http://localhost:8080/api/get/file/${roomId}`, {
-              method: "GET",
-              credentials: "include",
-            }),
-          ]);
+      // Fetch messages, files, and voices
+      const [messagesResponse, filesResponse, voicesResponse] =
+        await Promise.all([
+          axios.get(
+            `http://localhost:8080/api/messages?roomId=${encodeURIComponent(
+              roomId
+            )}`,
+            {
+              withCredentials: true,
+            }
+          ),
+          axios.get(
+            `http://localhost:8080/api/get/file/${encodeURIComponent(roomId)}`,
+            {
+              withCredentials: true,
+            }
+          ),
+          axios.get(
+            `http://localhost:8080/api/get/voice/${encodeURIComponent(roomId)}`,
+            {
+              withCredentials: true,
+            }
+          ),
+        ]);
 
-        // Validate responses
-        if (!messagesResponse.ok) {
-          const errorData = await messagesResponse.json().catch(() => ({}));
-          throw new Error(
-            errorData.message ||
-              `Messages API error! status: ${messagesResponse.status}`
-          );
-        }
-        if (!voicesResponse.ok) {
-          const errorData = await voicesResponse.json().catch(() => ({}));
-          throw new Error(
-            errorData.message ||
-              `Voice API error! status: ${voicesResponse.status}`
-          );
-        }
-        if (!filesResponse.ok) {
-          const errorData = await filesResponse.json().catch(() => ({}));
-          throw new Error(
-            errorData.message ||
-              `File API error! status: ${filesResponse.status}`
-          );
-        }
-
-        const { success: messagesSuccess, data: messagesData } =
-          await messagesResponse.json();
-        const { success: voicesSuccess, messages: voicesData } =
-          await voicesResponse.json();
-        const { success: filesSuccess, data: filesData } =
-          await filesResponse.json();
-
-        if (!messagesSuccess || !Array.isArray(messagesData)) {
-          throw new Error("Invalid response format for messages");
-        }
-        if (!voicesSuccess || !Array.isArray(voicesData)) {
-          throw new Error("Invalid response format for voice messages");
-        }
-        if (!filesSuccess || !Array.isArray(filesData)) {
-          throw new Error("Invalid response format for file messages");
-        }
-
-        // Deduplicate by _id
-        const seenIds = new Set();
-        const uniqueMessages = messagesData.filter((msg) => {
-          if (seenIds.has(String(msg._id))) return false;
-          seenIds.add(String(msg._id));
-          return true;
-        });
-        const uniqueVoices = voicesData.filter((msg) => {
-          if (seenIds.has(String(msg._id))) return false;
-          seenIds.add(String(msg._id));
-          return true;
-        });
-        const uniqueFiles = filesData.filter((msg) => {
-          if (seenIds.has(String(msg._id))) return false;
-          seenIds.add(String(msg._id));
-          return true;
-        });
-
-        // Update state
-        set((state) => ({
-          currentRoom: roomId,
-          messages: [
-            ...state.messages.filter(
-              (msg) => String(msg.roomId) !== String(roomId)
-            ),
-            ...uniqueMessages
-              .filter((msg) => !msg.file && !msg.voice)
-              .map((msg) => ({
-                _id: String(msg._id),
-                userId: String(msg.userId),
-                roomId: String(msg.roomId),
-                message: msg.message,
-                username: msg.username || "Anonymous",
-                timestamp: msg.timestamp || new Date().toISOString(),
-              })),
-          ],
-          uploadedFiles: [
-            ...state.uploadedFiles.filter(
-              (file) => String(file.roomId) !== String(roomId)
-            ),
-            ...uniqueFiles.map((msg) => ({
-              _id: String(msg._id),
-              message: msg.message || "File uploaded",
-              userId: String(msg.userId),
-              username: msg.username || "Anonymous",
-              roomId: String(msg.roomId),
-              timestamp: msg.timestamp || new Date().toISOString(),
-              file: {
-                filename: String(msg.file.filename || ""),
-                originalName: String(msg.file.originalName || ""),
-                mimeType: String(
-                  msg.file.mimeType || "application/octet-stream"
-                ),
-                size: Number(msg.file.size) || 0,
-                url: String(msg.file.url || ""),
-              },
-            })),
-          ],
-          uploadedVoices: [
-            ...state.uploadedVoices.filter(
-              (voice) => String(voice.roomId) !== String(roomId)
-            ),
-            ...uniqueVoices.map((voice) => ({
-              _id: String(voice._id),
-              message: voice.message || "Voice message uploaded",
-              userId: String(voice.userId || "unknown"),
-              username: voice.username || "Anonymous",
-              roomId: String(voice.roomId),
-              timestamp: voice.timestamp || new Date().toISOString(),
-              voice: {
-                filename: String(voice.voice.filename || ""),
-                originalName: String(
-                  voice.voice.originalName || voice.voice.filename || ""
-                ),
-                mimeType: String(voice.voice.mimeType || "audio/webm"),
-                size: Number(voice.voice.size || 0),
-                url: String(voice.voice.url || ""),
-              },
-            })),
-          ],
-          error: null,
-        }));
-      } catch (error) {
-        console.error("Error fetching room data:", error.message);
-        set({ error: `Failed to fetch room data: ${error.message}` });
+      // Validate responses
+      if (
+        !messagesResponse.data.success ||
+        !Array.isArray(messagesResponse.data.data)
+      ) {
+        throw new Error(
+          messagesResponse.data.message || "Failed to fetch messages"
+        );
       }
-    } else {
-      set({ error: "Socket not connected" });
-      console.log("❌ joinRoom: Socket not connected");
+      if (
+        !filesResponse.data.success ||
+        !Array.isArray(filesResponse.data.data)
+      ) {
+        throw new Error(filesResponse.data.error || "Failed to fetch files");
+      }
+      if (
+        !voicesResponse.data.success ||
+        !Array.isArray(voicesResponse.data.data)
+      ) {
+        throw new Error(
+          voicesResponse.data.error || "Failed to fetch voice messages"
+        );
+      }
+
+      const fetchedMessages = messagesResponse.data.data || [];
+      const fetchedFiles = filesResponse.data.data || [];
+      const fetchedVoices = voicesResponse.data.data || [];
+
+      console.log(
+        `📤 [Fetched Messages]:`,
+        JSON.stringify(fetchedMessages, null, 2)
+      );
+      console.log(`📤 [Fetched Files]:`, JSON.stringify(fetchedFiles, null, 2));
+      console.log(
+        `📤 [Fetched Voices]:`,
+        JSON.stringify(fetchedVoices, null, 2)
+      );
+
+      // Filter out system-generated upload messages
+      const systemUploadMessages = [
+        "voice message uploaded",
+        "file uploaded",
+        "voice uploaded",
+        "file message uploaded",
+      ];
+      const textMessages = fetchedMessages
+        .filter((msg) => {
+          if (!msg.message) return false;
+          const messageText = msg.message.trim().toLowerCase();
+          const isSystemMessage = systemUploadMessages.some((sysMsg) =>
+            messageText.includes(sysMsg)
+          );
+          const isSystemUser =
+            msg.userId === "system" || msg.username === "System";
+          return !isSystemMessage && !isSystemUser;
+        })
+        .map((msg) => ({
+          _id: String(msg._id),
+          message: msg.message,
+          userId: String(msg.userId),
+          username: msg.username || "Anonymous",
+          roomId: String(msg.roomId),
+          timestamp: msg.timestamp,
+          updatedAt: msg.updatedAt,
+        }));
+
+      // Process files
+      const files = fetchedFiles
+        .filter((msg) => msg.file)
+        .map((msg) => ({
+          _id: String(msg._id),
+          message: msg.message || "File uploaded",
+          userId: String(msg.userId),
+          username: msg.username || "Anonymous",
+          roomId: String(msg.roomId),
+          timestamp: msg.timestamp,
+          file: {
+            filename: String(msg.file.filename),
+            originalName: String(msg.file.originalName),
+            mimeType: String(msg.file.mimeType),
+            size: Number(msg.file.size),
+            url: String(msg.file.url),
+          },
+        }));
+
+      // Process voices
+      const voices = fetchedVoices.map((msg) => ({
+        _id: String(msg._id),
+        message: msg.message || "Voice message",
+        userId: String(msg.userId),
+        username: msg.username || "Anonymous",
+        roomId: String(msg.roomId),
+        timestamp: msg.timestamp,
+        voice: {
+          filename: String(msg.voice.filename),
+          originalName: String(msg.voice.originalName),
+          mimeType: String(msg.voice.mimeType),
+          size: Number(msg.voice.size),
+          url: String(msg.voice.url),
+        },
+      }));
+
+      // Log filtered messages
+      console.log(
+        `🔍 [Filtered Text Messages]:`,
+        JSON.stringify(textMessages, null, 2)
+      );
+
+      // Update state
+      set((state) => {
+        const existingMessageIds = new Set(state.messages.map((m) => m._id));
+        const newMessages = textMessages.filter(
+          (m) => !existingMessageIds.has(m._id)
+        );
+        const newFiles = files.filter((f) => !existingMessageIds.has(f._id));
+        const newVoices = voices.filter((v) => !existingMessageIds.has(v._id));
+
+        console.log(
+          `🔍 [New Messages]: Text=${newMessages.length}, Files=${newFiles.length}, Voices=${newVoices.length}`
+        );
+
+        return {
+          messages: [
+            ...state.messages,
+            ...newMessages,
+            ...newFiles,
+            ...newVoices,
+          ],
+          uploadedFiles: [...state.uploadedFiles, ...newFiles],
+          uploadedVoices: [...state.uploadedVoices, ...newVoices],
+          currentRoom: String(roomId),
+        };
+      });
+
+      console.log(
+        `✅ [Joined Room]: ${roomId}, Messages: ${textMessages.length}, Files: ${files.length}, Voices: ${voices.length}`
+      );
+
+      // Join room via Socket.IO
+      if (socket && socket.connected) {
+        socket.emit("joinRoom", roomId);
+      }
+    } catch (error) {
+      console.error("❌ [Join Room Error]:", error.message);
+      set({ error: error.response?.data?.message || "Failed to join room" });
+    }
+  },
+
+  requestVoice: async (voiceId) => {
+    try {
+      set({ downloadProgress: 0, downloadError: null });
+      const voiceMetadata = get().uploadedVoices.find(
+        (v) => String(v._id) === String(voiceId)
+      );
+      if (!voiceMetadata) {
+        throw new Error("Voice metadata not found");
+      }
+
+      const response = await axios.get(
+        `/api/download/voice/${encodeURIComponent(voiceId)}`,
+        {
+          responseType: "blob",
+          withCredentials: true,
+          onDownloadProgress: (progressEvent) => {
+            const percentCompleted = Math.round(
+              (progressEvent.loaded * 100) / progressEvent.total
+            );
+            set({ downloadProgress: percentCompleted });
+          },
+        }
+      );
+
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", voiceMetadata.voice.originalName);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+
+      console.log(`📥 [Downloaded voice] ${voiceId}`);
+      set({ downloadProgress: 100 });
+    } catch (error) {
+      console.error("❌ [Download Voice Error]:", error.message);
+      set({
+        downloadError:
+          error.response?.data?.error || "Failed to download voice",
+        downloadProgress: 0,
+      });
     }
   },
 
@@ -583,7 +645,7 @@ export const useMessageStore = create((set, get) => ({
       set({ error: "File ID is required" });
       return;
     }
-    const { currentRoom, uploadedFiles } = get();
+    const { currentRoom, uploadedFiles, messages } = get();
     if (!currentRoom) {
       set({ error: "No room selected. Please join a room." });
       return;
@@ -601,6 +663,18 @@ export const useMessageStore = create((set, get) => ({
       set({ error: "File metadata missing filename" });
       return;
     }
+
+    // Optimistically update state
+    const originalFiles = [...uploadedFiles];
+    const originalMessages = [...messages];
+    set((state) => ({
+      uploadedFiles: state.uploadedFiles.filter(
+        (f) => String(f._id) !== String(fileId)
+      ),
+      messages: state.messages.filter(
+        (msg) => String(msg?.file?.filename) !== String(file.file.filename)
+      ),
+    }));
 
     try {
       console.log(
@@ -623,10 +697,14 @@ export const useMessageStore = create((set, get) => ({
         error.message,
         error.response?.data
       );
-      const errorMessage =
-        error.response?.data?.error ||
-        `Failed to delete file: ${error.message}`;
-      set({ error: errorMessage });
+      // Rollback on failure
+      set({
+        uploadedFiles: originalFiles,
+        messages: originalMessages,
+        error:
+          error.response?.data?.error ||
+          `Failed to delete file: ${error.message}`,
+      });
     }
   },
 
@@ -859,28 +937,45 @@ export const useMessageStore = create((set, get) => ({
         if (data && data._id && data.roomId) {
           const { currentRoom } = get();
           if (String(data.roomId) === String(currentRoom)) {
+            // Skip messages that are likely auto-generated for voice/file uploads
+            const isUploadMessage =
+              data.message === "Voice message uploaded" ||
+              data.message === "File uploaded";
+            if (isUploadMessage) {
+              console.log(
+                `Skipping upload notification message: "${data.message}"`
+              );
+              return;
+            }
             set((state) => {
               if (
                 state.messages.some(
                   (msg) => String(msg._id) === String(data._id)
                 )
               ) {
+                console.log("Message already exists, skipping:", data._id);
                 return state;
               }
               return {
                 messages: [
                   ...state.messages,
                   {
-                    ...data,
                     _id: String(data._id),
+                    message: data.message,
                     userId: data.userId ? String(data.userId) : "unknown",
+                    username: data.username || "Anonymous",
                     roomId: String(data.roomId),
                     timestamp: data.timestamp || new Date().toISOString(),
+                    updatedAt: data.updatedAt,
                   },
                 ],
                 error: null,
               };
             });
+          } else {
+            console.log(
+              `Message for different room: ${data.roomId}, currentRoom: ${currentRoom}`
+            );
           }
         } else {
           console.error("Invalid newMessage data: missing _id or roomId", data);
@@ -998,54 +1093,63 @@ export const useMessageStore = create((set, get) => ({
           set({ error: "Received invalid join confirmation data" });
         }
       });
-
       socket.on("roomCreated", (room) => {
-        console.log("📥 [roomCreated Received]:", room);
+        console.log(
+          "📥 [roomCreated Received]:",
+          JSON.stringify(room, null, 2)
+        );
         if (room && room.roomId) {
           set((state) => {
-            if (
-              state.rooms.some((r) => String(r.roomId) === String(room.roomId))
-            ) {
+            const exists = state.rooms.some(
+              (r) => String(r.roomId) === String(room.roomId)
+            );
+            console.log(
+              `🔍 [roomCreated] Room exists: ${exists}, rooms:`,
+              state.rooms
+            );
+            if (exists) {
               return state;
             }
+            const newRoom = {
+              roomId: String(room.roomId),
+              roomName: room.roomName,
+              users: room.users.map((u) => String(u)),
+              creator: room.creator ? String(room.creator) : null,
+            };
+            console.log(`🔍 [roomCreated] Adding room:`, newRoom);
             return {
-              rooms: [
-                ...state.rooms,
-                {
-                  roomId: String(room.roomId),
-                  roomName: room.roomName,
-                  users: room.users.map((u) => String(u)),
-                  creator: room.creator ? String(room.creator) : null,
-                },
-              ],
+              rooms: [...state.rooms, newRoom],
               selectedUsers: [],
               error: null,
             };
           });
+          console.log(`✅ [roomCreated] Updated rooms:`, get().rooms);
         } else {
           console.error("Invalid roomCreated data:", room);
           set({ error: "Received invalid room data" });
         }
       });
-
-      socket.on("userJoined", ({ userId, username, roomId }) => {
+      socket.on("userJoined", ({ user, roomId }) => {
         console.log(
-          `📥 [userJoined Received]: ${username} (${userId}) in room=${roomId}`
+          `📥 [userJoined Received]: userId=${user.userId}, username=${user.username}, roomId=${roomId}`
         );
-        const { currentRoom } = get();
-        if (String(roomId) === String(currentRoom) && userId && username) {
-          set((state) => ({
-            onlineUsers: [
-              ...state.onlineUsers.filter(
-                (u) => String(u.userId) !== String(userId)
-              ),
-              { userId: String(userId), username },
-            ],
-          }));
+        if (String(roomId) === String(get().currentRoom) && user?.userId) {
+          set((state) => {
+            // Remove existing user with same userId to avoid duplicates
+            const updatedUsers = state.onlineUsers.filter(
+              (u) => String(u.userId) !== String(user.userId)
+            );
+            return {
+              onlineUsers: [...updatedUsers, user],
+            };
+          });
+          console.log(
+            `🔍 [userJoined] Updated onlineUsers:`,
+            get().onlineUsers
+          );
         } else {
-          console.warn("Invalid userJoined data or wrong room", {
-            userId,
-            username,
+          console.warn("Invalid userJoined data or room mismatch:", {
+            user,
             roomId,
           });
         }
@@ -1159,29 +1263,26 @@ export const useMessageStore = create((set, get) => ({
               ) {
                 return state;
               }
+              const newFile = {
+                _id: String(fileDetails._id),
+                message: fileDetails.message || "File uploaded",
+                userId: String(fileDetails.userId || "unknown"),
+                username: fileDetails.username || "Anonymous",
+                roomId: String(fileDetails.roomId),
+                timestamp: fileDetails.timestamp || new Date().toISOString(),
+                file: {
+                  filename: fileDetails.file.filename,
+                  originalName:
+                    fileDetails.file.originalName || fileDetails.file.filename,
+                  mimeType:
+                    fileDetails.file.mimeType || "application/octet-stream",
+                  size: fileDetails.file.size || 0,
+                  url: fileDetails.file.url,
+                },
+              };
               return {
-                uploadedFiles: [
-                  ...state.uploadedFiles,
-                  {
-                    _id: String(fileDetails._id),
-                    message: fileDetails.message || "File uploaded",
-                    userId: String(fileDetails.userId || "unknown"),
-                    username: fileDetails.username || "Anonymous",
-                    roomId: String(fileDetails.roomId),
-                    timestamp:
-                      fileDetails.timestamp || new Date().toISOString(),
-                    file: {
-                      filename: fileDetails.file.filename,
-                      originalName:
-                        fileDetails.file.originalName ||
-                        fileDetails.file.filename,
-                      mimeType:
-                        fileDetails.file.mimeType || "application/octet-stream",
-                      size: fileDetails.file.size || 0,
-                      url: fileDetails.file.url,
-                    },
-                  },
-                ],
+                uploadedFiles: [...state.uploadedFiles, newFile],
+                messages: [...state.messages, newFile], // Add to messages for allItems
                 error: null,
               };
             });
@@ -1195,26 +1296,37 @@ export const useMessageStore = create((set, get) => ({
         }
       });
 
-      socket.on("fileDeleted", ({ fileId, roomId, message, timestamp }) => {
+      socket.on("fileDeleted", ({ fileId, roomId }) => {
         console.log(
           `📥 [fileDeleted Received]: fileId=${fileId}, roomId=${roomId}`
         );
         if (fileId && roomId) {
           const { currentRoom } = get();
           if (String(roomId) === String(currentRoom)) {
-            set((state) => ({
-              uploadedFiles: state.uploadedFiles.filter(
+            set((state) => {
+              const updatedFiles = state.uploadedFiles.filter(
                 (file) => String(file.file.filename) !== String(fileId)
-              ),
-              error: null,
-            }));
+              );
+              const updatedMessages = state.messages.filter(
+                (msg) => String(msg?.file?.filename) !== String(fileId)
+              );
+              console.log(
+                `🔍 [fileDeleted] Before: files=${state.uploadedFiles.length}, messages=${state.messages.length}`
+              );
+              console.log(
+                `🔍 [fileDeleted] After: files=${updatedFiles.length}, messages=${updatedMessages.length}`
+              );
+              return {
+                uploadedFiles: updatedFiles,
+                messages: updatedMessages,
+                error: null,
+              };
+            });
           }
         } else {
           console.error("Invalid fileDeleted data: missing fileId or roomId", {
             fileId,
             roomId,
-            message,
-            timestamp,
           });
           set({ error: "Received invalid file deletion data" });
         }
@@ -1268,28 +1380,26 @@ export const useMessageStore = create((set, get) => ({
               ) {
                 return state;
               }
+              const newVoice = {
+                _id: String(voiceDetails._id),
+                message: voiceDetails.message || "Voice message uploaded",
+                userId: String(voiceDetails.userId || "unknown"),
+                username: voiceDetails.username || "Anonymous",
+                roomId: String(voiceDetails.roomId),
+                timestamp: voiceDetails.timestamp || new Date().toISOString(),
+                voice: {
+                  filename: voiceDetails.voice.filename,
+                  originalName:
+                    voiceDetails.voice.originalName ||
+                    voiceDetails.voice.filename,
+                  mimeType: voiceDetails.voice.mimeType || "audio/webm",
+                  size: voiceDetails.voice.size || 0,
+                  url: voiceDetails.voice.url,
+                },
+              };
               return {
-                uploadedVoices: [
-                  ...state.uploadedVoices,
-                  {
-                    _id: String(voiceDetails._id),
-                    message: voiceDetails.message || "Voice message uploaded",
-                    userId: String(voiceDetails.userId || "unknown"),
-                    username: voiceDetails.username || "Anonymous",
-                    roomId: String(voiceDetails.roomId),
-                    timestamp:
-                      voiceDetails.timestamp || new Date().toISOString(),
-                    voice: {
-                      filename: voiceDetails.voice.filename,
-                      originalName:
-                        voiceDetails.voice.originalName ||
-                        voiceDetails.voice.filename,
-                      mimeType: voiceDetails.voice.mimeType || "audio/mpeg",
-                      size: voiceDetails.voice.size || 0,
-                      url: voiceDetails.voice.url,
-                    },
-                  },
-                ],
+                uploadedVoices: [...state.uploadedVoices, newVoice],
+                messages: [...state.messages, newVoice], // Add to messages for allItems
                 error: null,
               };
             });

@@ -159,95 +159,15 @@ const GroupChatUI = () => {
   useEffect(() => {
     const socket = useMessageStore.getState().socket;
     if (socket) {
-      const handleUserLeftRoom = ({ username, roomId }) => {
-        if (String(roomId) === String(currentRoom)) {
-          setNotifications((prev) => [
-            ...prev,
-            {
-              id: `notif-${Date.now()}-${notificationIdCounter++}`,
-              message: `${username} left the room`,
-              type: "info",
-            },
-          ]);
-        }
-      };
-      const handleRoomDeleted = ({ roomId, roomName, message }) => {
-        if (String(roomId) === String(currentRoom)) {
-          setNotifications((prev) => [
-            ...prev,
-            {
-              id: `notif-${Date.now()}-${notificationIdCounter++}`,
-              message,
-              type: message.includes("You have successfully deleted")
-                ? "success"
-                : "warning",
-            },
-          ]);
-        }
-      };
-      const handleNewVoice = (voice) => {
-        console.log("📥 [New voice message received]:", voice);
-        if (
-          voice &&
-          voice._id &&
-          voice.roomId &&
-          voice.voice &&
-          voice.voice.url &&
-          String(voice.roomId) === String(currentRoom)
-        ) {
-          useMessageStore.setState((prev) => {
-            if (
-              prev.uploadedVoices.some(
-                (v) => String(v._id) === String(voice._id)
-              )
-            ) {
-              console.log("Voice already exists, skipping:", voice._id);
-              return prev;
-            }
-            console.log("Adding voice to uploadedVoices:", voice);
-            return {
-              uploadedVoices: [
-                ...prev.uploadedVoices,
-                {
-                  _id: String(voice._id),
-                  message: voice.message || "Voice message uploaded",
-                  userId: String(voice.userId || "unknown"),
-                  username: voice.username || "Anonymous",
-                  roomId: String(voice.roomId),
-                  timestamp: voice.timestamp || new Date().toISOString(),
-                  voice: {
-                    filename: voice.voice.filename,
-                    originalName:
-                      voice.voice.originalName || voice.voice.filename,
-                    mimeType: voice.voice.mimeType || "audio/webm",
-                    size: voice.voice.size || 0,
-                    url: voice.voice.url,
-                  },
-                },
-              ],
-            };
-          });
-          setNotifications((prev) => [
-            ...prev,
-            {
-              id: `notif-${Date.now()}-${notificationIdCounter++}`,
-              message: `New voice message from ${
-                voice.username || "Anonymous"
-              }`,
-              type: "info",
-            },
-          ]);
-        } else {
-          console.warn("Invalid or irrelevant voice data:", voice);
-        }
-      };
-      socket.on("userLeftRoom", handleUserLeftRoom);
-      socket.on("roomDeleted", handleRoomDeleted);
-      socket.on("newVoice", handleNewVoice);
+      socket.on("newMessage", (data) => {
+        console.log("📥 [GroupChatUI newMessage]:", data);
+      });
+      socket.on("messageUpdated", (data) => {
+        console.log("📥 [GroupChatUI messageUpdated]:", data);
+      });
       return () => {
-        socket.off("userLeftRoom", handleUserLeftRoom);
-        socket.off("roomDeleted", handleRoomDeleted);
-        socket.off("newVoice", handleNewVoice);
+        socket.off("newMessage");
+        socket.off("messageUpdated");
       };
     }
   }, [currentRoom]);
@@ -690,59 +610,40 @@ const GroupChatUI = () => {
   );
 
   const allItems = useMemo(() => {
-    const seenIds = new Set();
-    const items = [];
-
-    // Add messages (text only)
-    roomMessages.forEach((msg) => {
-      if (!seenIds.has(String(msg._id))) {
-        items.push({
-          type: "message",
-          id: msg._id,
-          userId: msg.userId,
-          username: msg.username,
-          content: msg.message,
-          timestamp: msg.timestamp || Date.now(),
-          updatedAt: msg.updatedAt,
-        });
-        seenIds.add(String(msg._id));
-      }
-    });
-
-    // Add files
-    roomFiles.forEach((file) => {
-      if (!seenIds.has(String(file._id))) {
-        items.push({
-          type: "file",
-          id: file._id,
-          userId: file.userId,
-          username: file.username,
-          content: file.message,
-          file: file.file,
-          timestamp: file.timestamp || Date.now(),
-        });
-        seenIds.add(String(file._id));
-      }
-    });
-
-    // Add voices
-    roomVoices.forEach((voice) => {
-      if (!seenIds.has(String(voice._id))) {
-        items.push({
-          type: "voice",
-          id: voice._id,
-          userId: voice.userId,
-          username: voice.username,
-          content: voice.message,
-          voice: voice.voice,
-          timestamp: voice.timestamp || Date.now(),
-        });
-        seenIds.add(String(voice._id));
-      }
-    });
-
-    return items.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-  }, [roomMessages, roomFiles, roomVoices]);
+    return messages
+      .filter((item) => String(item.roomId) === String(currentRoom))
+      .filter((item) => {
+        // Skip system-generated messages
+        if (item.userId === "system" || item.username === "System")
+          return false;
+        // Skip text messages that are redundant for file/voice uploads
+        const systemUploadMessages = [
+          "voice message uploaded",
+          "file uploaded",
+          "voice uploaded",
+          "file message uploaded",
+        ];
+        if (item.message && !item.file && !item.voice) {
+          const messageText = item.message.trim().toLowerCase();
+          return !systemUploadMessages.some((sysMsg) =>
+            messageText.includes(sysMsg)
+          );
+        }
+        return true;
+      })
+      .map((item) => ({
+        type: item.file ? "file" : item.voice ? "voice" : "message",
+        id: item._id,
+        userId: item.userId,
+        username: item.username,
+        content: item.message,
+        timestamp: item.timestamp || Date.now(),
+        updatedAt: item.updatedAt,
+        ...(item.file && { file: item.file }),
+        ...(item.voice && { voice: item.voice }),
+      }))
+      .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+  }, [messages, currentRoom]);
 
   const currentRoomData =
     rooms.find((r) => String(r.roomId) === String(currentRoom)) || {};
@@ -936,28 +837,6 @@ const GroupChatUI = () => {
               Available Rooms
             </h3>
             <div className="space-y-2">
-              <div
-                className={`p-3 rounded-lg cursor-pointer transition-all ${
-                  currentRoom === `company_${user.companyId}`
-                    ? "bg-blue-100 border-l-4 border-blue-500"
-                    : "bg-gray-50 hover:bg-gray-100"
-                }`}
-                onClick={() => handleJoinRoom(`company_${user.companyId}`)}
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="font-medium text-gray-900 text-sm">
-                      Company Chat
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      General company discussion
-                    </div>
-                  </div>
-                  {currentRoom === `company_${user.companyId}` && (
-                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                  )}
-                </div>
-              </div>
               {rooms.map((room) => (
                 <div
                   key={room.roomId}
