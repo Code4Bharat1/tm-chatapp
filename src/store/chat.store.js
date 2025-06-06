@@ -40,7 +40,7 @@ export const useMessageStore = create((set, get) => ({
       console.log(
         `📤 [Sending sendMessage] content="${messageContent}" to room=${currentRoom}`
       );
-      socket.emit("sendMessage", messageContent);
+      socket.emit("sendMessage", messageContent , currentRoom );
     } else {
       set({ error: "Socket not connected" });
     }
@@ -64,7 +64,7 @@ export const useMessageStore = create((set, get) => ({
       console.log(
         `📤 [Sending editMessage] messageId=${messageId}, newMessage="${newMessage}" to room=${currentRoom}`
       );
-      socket.emit("editMessage", { messageId, newMessage });
+      socket.emit("editMessage", { messageId, newMessage } , currentRoom);
     } else {
       set({ error: "Socket not connected" });
     }
@@ -84,7 +84,7 @@ export const useMessageStore = create((set, get) => ({
       console.log(
         `📤 [Sending deleteMessage] messageId=${messageId} to room=${currentRoom}`
       );
-      socket.emit("deleteMessage", messageId);
+      socket.emit("deleteMessage", messageId , currentRoom);
     } else {
       set({ error: "Socket not connected" });
     }
@@ -102,7 +102,7 @@ export const useMessageStore = create((set, get) => ({
           isTyping ? "typing" : "stopTyping"
         }] to room=${currentRoom}`
       );
-      socket.emit(isTyping ? "typing" : "stopTyping");
+      socket.emit(isTyping ? "typing" : "stopTyping" , currentRoom);
     }
   },
 
@@ -125,6 +125,7 @@ export const useMessageStore = create((set, get) => ({
 
       const data = await response.json();
       console.log("User from API:", data);
+      console.log("Company Name:", data.companyName || "N/A"); // Added console log for companyName
       if (data.userId) {
         set({ user: data, error: null });
       } else {
@@ -139,7 +140,8 @@ export const useMessageStore = create((set, get) => ({
   fetchCompanyUsers: async () => {
     try {
       console.log("Fetching company users from API...");
-      const response = await fetch("http://localhost:8080/api/companyUsers", {
+      const apiBaseUrl = "http://localhost:8080/api";
+      const response = await fetch(`${apiBaseUrl}/companyUsers`, {
         method: "GET",
         credentials: "include",
       });
@@ -147,10 +149,19 @@ export const useMessageStore = create((set, get) => ({
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         console.log("Error response from server:", errorData);
+        let errorMessage = errorData.message || "Unknown error";
+
+        if (response.status === 401) {
+          errorMessage = "Unauthorized: Please log in to access company users";
+        } else if (response.status === 403) {
+          errorMessage =
+            "Access denied: Only users and admins can access this data";
+        } else if (response.status === 400) {
+          errorMessage = "Invalid request: Company ID not found";
+        }
+
         throw new Error(
-          `HTTP error! status: ${response.status}, message: ${
-            errorData.message || "Unknown error"
-          }`
+          `HTTP error! status: ${response.status}, message: ${errorMessage}`
         );
       }
 
@@ -161,8 +172,9 @@ export const useMessageStore = create((set, get) => ({
           companyUsers: data.map((user) => ({
             userId: String(user.userId),
             firstName: user.firstName || "Anonymous",
-            email: user.email,
-            position: user.position,
+            email: user.email || null,
+            position: user.position || null,
+            role: user.role || "unknown",
           })),
           error: null,
         });
