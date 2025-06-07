@@ -5,7 +5,7 @@ import io from "socket.io-client";
 import Cookies from "js-cookie";
 import axios from "axios";
 import jwt from "jsonwebtoken";
-
+import { throttle } from 'lodash'; // Use lodash for throttling
 // Initialize Socket.IO client only once
 let socket = null;
 
@@ -90,22 +90,30 @@ export const useMessageStore = create((set, get) => ({
     }
   },
 
-  setTyping: (isTyping) => {
-    const { currentRoom } = get();
+  setTyping: throttle((isTyping) => {
+    const { currentRoom, user } = get();
     if (!currentRoom) {
       set({ error: "No room selected. Please join a room." });
       return;
     }
+    if (!user || !user.userId) {
+      set({ error: "User not authenticated." });
+      return;
+    }
     if (socket && socket.connected) {
       console.log(
-        `📤 [Sending ${
-          isTyping ? "typing" : "stopTyping"
-        }] to room=${currentRoom}`
+        `📤 [Sending ${isTyping ? "typing" : "stopTyping"}] userId=${
+          user.userId
+        }, room=${currentRoom}`
       );
-      socket.emit(isTyping ? "typing" : "stopTyping", currentRoom);
+      socket.emit(isTyping ? "typing" : "stopTyping", {
+        roomId: currentRoom,
+        userId: user.userId,
+      });
+    } else {
+      set({ error: "Socket not connected." });
     }
-  },
-
+  }, 500),
   fetchUser: async () => {
     try {
       console.log("Fetching user from API...");
