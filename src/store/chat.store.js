@@ -40,7 +40,7 @@ export const useMessageStore = create((set, get) => ({
       console.log(
         `📤 [Sending sendMessage] content="${messageContent}" to room=${currentRoom}`
       );
-      socket.emit("sendMessage", messageContent , currentRoom );
+      socket.emit("sendMessage", messageContent, currentRoom);
     } else {
       set({ error: "Socket not connected" });
     }
@@ -64,7 +64,7 @@ export const useMessageStore = create((set, get) => ({
       console.log(
         `📤 [Sending editMessage] messageId=${messageId}, newMessage="${newMessage}" to room=${currentRoom}`
       );
-      socket.emit("editMessage", { messageId, newMessage } , currentRoom);
+      socket.emit("editMessage", { messageId, newMessage, currentRoom });
     } else {
       set({ error: "Socket not connected" });
     }
@@ -84,7 +84,7 @@ export const useMessageStore = create((set, get) => ({
       console.log(
         `📤 [Sending deleteMessage] messageId=${messageId} to room=${currentRoom}`
       );
-      socket.emit("deleteMessage", messageId , currentRoom);
+      socket.emit("deleteMessage", messageId, currentRoom);
     } else {
       set({ error: "Socket not connected" });
     }
@@ -102,7 +102,7 @@ export const useMessageStore = create((set, get) => ({
           isTyping ? "typing" : "stopTyping"
         }] to room=${currentRoom}`
       );
-      socket.emit(isTyping ? "typing" : "stopTyping" , currentRoom);
+      socket.emit(isTyping ? "typing" : "stopTyping", currentRoom);
     }
   },
 
@@ -945,7 +945,7 @@ export const useMessageStore = create((set, get) => ({
       });
 
       socket.on("newMessage", (data) => {
-        console.log("📥 [newMessage Received]:", data);
+        console.log("📥 [newMessage Received]:", JSON.stringify(data, null, 2));
         if (data && data._id && data.roomId) {
           const { currentRoom } = get();
           if (String(data.roomId) === String(currentRoom)) {
@@ -968,6 +968,17 @@ export const useMessageStore = create((set, get) => ({
                 console.log("Message already exists, skipping:", data._id);
                 return state;
               }
+              // Warn if unexpected fields like 'users' are present
+              if (data.users || data.onlineUsers) {
+                console.warn("Unexpected users data in newMessage:", {
+                  users: data.users,
+                  onlineUsers: data.onlineUsers,
+                });
+              }
+              console.log(
+                "🔍 [newMessage] Current onlineUsers:",
+                state.onlineUsers
+              ); // Debug
               return {
                 messages: [
                   ...state.messages,
@@ -979,6 +990,7 @@ export const useMessageStore = create((set, get) => ({
                     roomId: String(data.roomId),
                     timestamp: data.timestamp || new Date().toISOString(),
                     updatedAt: data.updatedAt,
+                    companyName: data.companyName || "Unknown Company",
                   },
                 ],
                 error: null,
@@ -1051,15 +1063,35 @@ export const useMessageStore = create((set, get) => ({
         );
         const { currentRoom } = get();
         if (String(roomId) === String(currentRoom) && userId && username) {
-          set((state) => ({
-            isTyping: { ...state.isTyping, [String(userId)]: username },
-            onlineUsers: [
-              ...state.onlineUsers.filter(
-                (u) => String(u.userId) !== String(userId)
-              ),
-              { userId: String(userId), username },
-            ],
-          }));
+          const token = Cookies.get("token");
+          let isClient = false;
+          if (token) {
+            try {
+              const user = jwt.decode(token);
+              isClient = user?.position?.toLowerCase() === "client";
+            } catch (error) {
+              console.error(
+                "Error decoding token in userTyping:",
+                error.message
+              );
+            }
+          }
+          if (isClient) {
+            // Clients only update typing, not onlineUsers
+            set((state) => ({
+              isTyping: { ...state.isTyping, [String(userId)]: username },
+            }));
+          } else {
+            set((state) => ({
+              isTyping: { ...state.isTyping, [String(userId)]: username },
+              onlineUsers: [
+                ...state.onlineUsers.filter(
+                  (u) => String(u.userId) !== String(userId)
+                ),
+                { userId: String(userId), username },
+              ],
+            }));
+          }
         } else {
           console.warn("Invalid userTyping data or wrong room", {
             userId,
@@ -1089,15 +1121,39 @@ export const useMessageStore = create((set, get) => ({
       });
 
       socket.on("joinConfirmation", (data) => {
-        console.log(`✅ Joined room: ${data.room}`);
-        if (data.room && data.users) {
+        console.log(
+          `✅ [joinConfirmation Received]:`,
+          JSON.stringify(data, null, 2)
+        );
+        if (data.room) {
+          const token = Cookies.get("token");
+          let isClient = false;
+          if (token) {
+            try {
+              const user = jwt.decode(token);
+              isClient = user?.position?.toLowerCase() === "client";
+            } catch (error) {
+              console.error(
+                "Error decoding token in joinConfirmation:",
+                error.message
+              );
+            }
+          }
+          if (isClient && data.users?.length > 0) {
+            console.warn(
+              "Unexpected users data in joinConfirmation for client:",
+              data.users
+            );
+          }
           set({
             currentRoom: String(data.room),
             groupName: data.roomName || `Room ${data.room}`,
-            onlineUsers: data.users.map((u) => ({
-              userId: String(u.userId),
-              username: u.username || "Anonymous",
-            })),
+            onlineUsers: isClient
+              ? []
+              : data.users?.map((u) => ({
+                  userId: String(u.userId),
+                  username: u.username || "Anonymous",
+                })) || [],
             error: null,
           });
         } else {
@@ -1105,12 +1161,32 @@ export const useMessageStore = create((set, get) => ({
           set({ error: "Received invalid join confirmation data" });
         }
       });
+
       socket.on("roomCreated", (room) => {
         console.log(
           "📥 [roomCreated Received]:",
           JSON.stringify(room, null, 2)
         );
         if (room && room.roomId) {
+          const token = Cookies.get("token");
+          let isClient = false;
+          if (token) {
+            try {
+              const user = jwt.decode(token);
+              isClient = user?.position?.toLowerCase() === "client";
+            } catch (error) {
+              console.error(
+                "Error decoding token in roomCreated:",
+                error.message
+              );
+            }
+          }
+          if (isClient && room.users?.length > 0) {
+            console.warn(
+              "Unexpected users data in roomCreated for client:",
+              room.users
+            );
+          }
           set((state) => {
             const exists = state.rooms.some(
               (r) => String(r.roomId) === String(room.roomId)
@@ -1125,7 +1201,7 @@ export const useMessageStore = create((set, get) => ({
             const newRoom = {
               roomId: String(room.roomId),
               roomName: room.roomName,
-              users: room.users.map((u) => String(u)),
+              users: isClient ? [] : room.users?.map((u) => String(u)) || [],
               creator: room.creator ? String(room.creator) : null,
             };
             console.log(`🔍 [roomCreated] Adding room:`, newRoom);
@@ -1141,29 +1217,86 @@ export const useMessageStore = create((set, get) => ({
           set({ error: "Received invalid room data" });
         }
       });
+
       socket.on("userJoined", ({ user, roomId }) => {
         console.log(
           `📥 [userJoined Received]: userId=${user.userId}, username=${user.username}, roomId=${roomId}`
         );
         if (String(roomId) === String(get().currentRoom) && user?.userId) {
-          set((state) => {
-            // Remove existing user with same userId to avoid duplicates
-            const updatedUsers = state.onlineUsers.filter(
-              (u) => String(u.userId) !== String(user.userId)
+          const token = Cookies.get("token");
+          let isClient = false;
+          if (token) {
+            try {
+              const userData = jwt.decode(token);
+              isClient = userData?.position?.toLowerCase() === "client";
+            } catch (error) {
+              console.error(
+                "Error decoding token in userJoined:",
+                error.message
+              );
+            }
+          }
+          if (!isClient) {
+            set((state) => {
+              // Remove existing user with same userId to avoid duplicates
+              const updatedUsers = state.onlineUsers.filter(
+                (u) => String(u.userId) !== String(user.userId)
+              );
+              return {
+                onlineUsers: [...updatedUsers, user],
+              };
+            });
+            console.log(
+              `🔍 [userJoined] Updated onlineUsers:`,
+              get().onlineUsers
             );
-            return {
-              onlineUsers: [...updatedUsers, user],
-            };
-          });
-          console.log(
-            `🔍 [userJoined] Updated onlineUsers:`,
-            get().onlineUsers
-          );
+          }
         } else {
           console.warn("Invalid userJoined data or room mismatch:", {
             user,
             roomId,
           });
+        }
+      });
+
+      socket.on("onlineUsersUpdate", (data) => {
+        console.log(
+          "📥 [onlineUsersUpdate Received]:",
+          JSON.stringify(data, null, 2)
+        );
+        const token = Cookies.get("token");
+        let isClient = false;
+        if (token) {
+          try {
+            const user = jwt.decode(token);
+            isClient = user?.position?.toLowerCase() === "client";
+          } catch (error) {
+            console.error(
+              "Error decoding token in onlineUsersUpdate:",
+              error.message
+            );
+          }
+        }
+        if (isClient) {
+          if (data.userCount !== undefined) {
+            set({ userCount: data.userCount, onlineUsers: [] });
+          } else if (data.users) {
+            console.warn(
+              "Unexpected users data in onlineUsersUpdate for client:",
+              data.users
+            );
+          }
+        } else {
+          if (data.users) {
+            set({
+              onlineUsers: data.users.map((u) => ({
+                userId: String(u.userId),
+                username: u.username || "Anonymous",
+              })),
+            });
+          } else if (data.userCount !== undefined) {
+            set({ userCount: data.userCount });
+          }
         }
       });
 
@@ -1444,6 +1577,7 @@ export const useMessageStore = create((set, get) => ({
           downloadError: null,
         });
       });
+
       socket.on("voiceDeleted", ({ voiceId, roomId }) => {
         console.log(
           `📥 [voiceDeleted Received]: voiceId=${voiceId}, roomId=${roomId}`

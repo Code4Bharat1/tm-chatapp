@@ -268,11 +268,118 @@ const GroupChatUI = () => {
     }
   };
 
-  const handleSendMessage = (e) => {
+  const handleUnifiedSend = async (e) => {
     e.preventDefault();
-    if (messageContent.trim()) {
-      sendMessage(messageContent);
-      setMessageContent("");
+    if (!currentRoom) {
+      setNotifications((prev) => [
+        ...prev,
+        {
+          id: `notif-${Date.now()}-${notificationIdCounter++}`,
+          message: "Please join a room to send messages or files",
+          type: "error",
+        },
+      ]);
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+
+      // Handle voice upload
+      if (recordedAudio) {
+        if (!(recordedAudio instanceof File)) {
+          console.error("Invalid voice object:", recordedAudio);
+          setNotifications((prev) => [
+            ...prev,
+            {
+              id: `notif-${Date.now()}-${notificationIdCounter++}`,
+              message: "Invalid voice object",
+              type: "error",
+            },
+          ]);
+          return;
+        }
+        console.log(
+          "📤 [Uploading voice] name:",
+          recordedAudio.name,
+          "size:",
+          recordedAudio.size,
+          "type:",
+          recordedAudio.type
+        );
+        await uploadVoice(recordedAudio, (progress) => {
+          console.log(`Voice upload progress: ${progress}%`);
+        });
+        setNotifications((prev) => [
+          ...prev,
+          {
+            id: `notif-${Date.now()}-${notificationIdCounter++}`,
+            message: `Voice message "${recordedAudio.name}" uploaded successfully`,
+            type: "success",
+          },
+        ]);
+        setRecordedAudio(null);
+        console.log("Voice upload completed successfully");
+      }
+
+      // Handle file upload
+      if (selectedFile) {
+        if (!(selectedFile instanceof File)) {
+          console.error("Invalid file object:", selectedFile);
+          setNotifications((prev) => [
+            ...prev,
+            {
+              id: `notif-${Date.now()}-${notificationIdCounter++}`,
+              message: "Invalid file object",
+              type: "error",
+            },
+          ]);
+          return;
+        }
+        console.log(
+          "📤 [Uploading file] name:",
+          selectedFile.name,
+          "size:",
+          selectedFile.size,
+          "type:",
+          selectedFile.type
+        );
+        await uploadFile(selectedFile, (progress) => {
+          console.log(`File upload progress: ${progress}%`);
+        });
+        setNotifications((prev) => [
+          ...prev,
+          {
+            id: `notif-${Date.now()}-${notificationIdCounter++}`,
+            message: `File "${selectedFile.name}" uploaded successfully`,
+            type: "success",
+          },
+        ]);
+        setSelectedFile(null);
+        fileInputRef.current.value = "";
+        console.log("File upload completed successfully");
+      }
+
+      // Handle text message
+      if (messageContent.trim()) {
+        sendMessage(messageContent);
+        setMessageContent("");
+      }
+    } catch (error) {
+      console.error("Unified send error:", error.message, error.response?.data);
+      setNotifications((prev) => [
+        ...prev,
+        {
+          id: `notif-${Date.now()}-${notificationIdCounter++}`,
+          message: `Failed to send: ${
+            error.response?.data?.error || error.message
+          }`,
+          type: "error",
+        },
+      ]);
+    } finally {
+      setIsUploading(false);
+      console.log("Unified send process finished, isUploading set to false");
     }
   };
 
@@ -398,161 +505,6 @@ const GroupChatUI = () => {
       setSelectedFile(file);
     } else {
       setSelectedFile(null);
-    }
-  };
-
-  const handleUploadFile = async (e) => {
-    e.preventDefault();
-    if (!selectedFile) {
-      setNotifications((prev) => [
-        ...prev,
-        {
-          id: `notif-${Date.now()}-${notificationIdCounter++}`,
-          message: "No file selected for upload",
-          type: "error",
-        },
-      ]);
-      return;
-    }
-    if (!currentRoom) {
-      setNotifications((prev) => [
-        ...prev,
-        {
-          id: `notif-${Date.now()}-${notificationIdCounter++}`,
-          message: "Please join a room to upload files",
-          type: "error",
-        },
-      ]);
-      return;
-    }
-    if (!(selectedFile instanceof File)) {
-      console.error("Invalid file object:", selectedFile);
-      setNotifications((prev) => [
-        ...prev,
-        {
-          id: `notif-${Date.now()}-${notificationIdCounter++}`,
-          message: "Invalid file object",
-          type: "error",
-        },
-      ]);
-      return;
-    }
-    console.log(
-      "📤 [Uploading file] name:",
-      selectedFile.name,
-      "size:",
-      selectedFile.size,
-      "type:",
-      selectedFile.type
-    );
-    try {
-      setIsUploading(true);
-      await uploadFile(selectedFile, (progress) => {
-        console.log(`Upload progress: ${progress}%`);
-      });
-      setNotifications((prev) => [
-        ...prev,
-        {
-          id: `notif-${Date.now()}-${notificationIdCounter++}`,
-          message: `File "${selectedFile.name}" uploaded successfully`,
-          type: "success",
-        },
-      ]);
-      setSelectedFile(null);
-      fileInputRef.current.value = "";
-      console.log("File upload completed successfully");
-    } catch (error) {
-      console.error("File upload error:", error.message, error.response?.data);
-      setNotifications((prev) => [
-        ...prev,
-        {
-          id: `notif-${Date.now()}-${notificationIdCounter++}`,
-          message: `Failed to upload file: ${
-            error.response?.data?.error || error.message
-          }`,
-          type: "error",
-        },
-      ]);
-    } finally {
-      setIsUploading(false);
-      console.log("Upload process finished, isUploading set to false");
-    }
-  };
-
-  const handleVoiceUpload = async (e) => {
-    e.preventDefault();
-    if (!recordedAudio) {
-      setNotifications((prev) => [
-        ...prev,
-        {
-          id: `notif-${Date.now()}-${notificationIdCounter++}`,
-          message: "No voice recording selected for upload",
-          type: "error",
-        },
-      ]);
-      return;
-    }
-    if (!currentRoom) {
-      setNotifications((prev) => [
-        ...prev,
-        {
-          id: `notif-${Date.now()}-${notificationIdCounter++}`,
-          message: "Please join a room to upload voice messages",
-          type: "error",
-        },
-      ]);
-      return;
-    }
-    if (!(recordedAudio instanceof File)) {
-      console.error("Invalid voice object:", recordedAudio);
-      setNotifications((prev) => [
-        ...prev,
-        {
-          id: `notif-${Date.now()}-${notificationIdCounter++}`,
-          message: "Invalid voice object",
-          type: "error",
-        },
-      ]);
-      return;
-    }
-    console.log(
-      "📤 [Uploading voice] name:",
-      recordedAudio.name,
-      "size:",
-      recordedAudio.size,
-      "type:",
-      recordedAudio.type
-    );
-    try {
-      setIsUploading(true);
-      await uploadVoice(recordedAudio, (progress) => {
-        console.log(`Voice upload progress: ${progress}%`);
-      });
-      setNotifications((prev) => [
-        ...prev,
-        {
-          id: `notif-${Date.now()}-${notificationIdCounter++}`,
-          message: `Voice message "${recordedAudio.name}" uploaded successfully`,
-          type: "success",
-        },
-      ]);
-      setRecordedAudio(null);
-      console.log("Voice upload completed successfully");
-    } catch (error) {
-      console.error("Voice upload error:", error.message, error.response?.data);
-      setNotifications((prev) => [
-        ...prev,
-        {
-          id: `notif-${Date.now()}-${notificationIdCounter++}`,
-          message: `Failed to upload voice: ${
-            error.response?.data?.error || error.message
-          }`,
-          type: "error",
-        },
-      ]);
-    } finally {
-      setIsUploading(false);
-      console.log("Voice upload process finished, isUploading set to false");
     }
   };
 
@@ -1302,7 +1254,7 @@ const GroupChatUI = () => {
             )}
           </div>
           <form
-            onSubmit={handleSendMessage}
+            onSubmit={handleUnifiedSend}
             className="p-4 bg-white border-t border-gray-200"
           >
             <div className="flex items-center space-x-3">
@@ -1342,35 +1294,19 @@ const GroupChatUI = () => {
                 {isRecording ? <StopCircle size={20} /> : <Mic size={20} />}
               </button>
               <button
-                type="button"
-                onClick={handleUploadFile}
-                className="bg-green-600 text-white px-4 py-3 rounded-lg text-sm font-medium hover:bg-green-700 disabled:bg-green-300 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
-                disabled={!selectedFile || !currentRoom || isUploading}
-              >
-                {isUploading && !recordedAudio ? (
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                ) : (
-                  <span>Upload File</span>
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={handleVoiceUpload}
-                className="bg-green-600 text-white px-4 py-3 rounded-lg text-sm font-medium hover:bg-green-700 disabled:bg-green-300 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
-                disabled={!recordedAudio || !currentRoom || isUploading}
-              >
-                {isUploading && recordedAudio ? (
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                ) : (
-                  <span>Upload Voice</span>
-                )}
-              </button>
-              <button
                 type="submit"
                 className="bg-blue-600 text-white px-6 py-3 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
-                disabled={!messageContent.trim() || !currentRoom}
+                disabled={
+                  !currentRoom ||
+                  (!messageContent.trim() && !selectedFile && !recordedAudio) ||
+                  isUploading
+                }
               >
-                <span>Send</span>
+                {isUploading ? (
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                ) : (
+                  <span>Send</span>
+                )}
               </button>
             </div>
             {selectedFile && (
@@ -1411,7 +1347,7 @@ const GroupChatUI = () => {
                 />
                 <span className="text-xs text-gray-600">
                   {uploadProgress}% (Uploading{" "}
-                  {recordedAudio ? "Voice" : "File"})
+                  {recordedAudio ? "Voice" : selectedFile ? "File" : "Content"})
                 </span>
               </div>
             )}
