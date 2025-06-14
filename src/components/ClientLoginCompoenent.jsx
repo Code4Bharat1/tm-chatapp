@@ -2,10 +2,11 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff, Mail, Lock, MessageCircle, AlertCircle, Users, Zap, Shield } from "lucide-react";
+import { compact } from "lodash";
 
 const LoginComponent = ({
   onLogin,
-  loginRoute = "http://localhost:4110/api/admin/client/login",
+  loginRoute = `${process.env.NEXT_PUBLIC_BACKEND_API}/admin/client/login`,
   redirectUrl = "/chat",
   title = "Welcome to ChatApp",
   subtitle = "Connect with friends and start conversations",
@@ -65,6 +66,13 @@ const LoginComponent = ({
         });
 
         const data = await response.json();
+
+        console.log(data)
+        // ✅ Save token from response to localStorage
+      if (data.clientToken) {
+        // console.log(data.admintoken)
+        localStorage.setItem('clientToken', data.clientToken);
+      }
 
         if (!response.ok) {
           throw new Error(data.message || "Authentication failed");

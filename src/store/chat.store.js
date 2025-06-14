@@ -32,7 +32,7 @@ export const useMessageStore = create((set, get) => ({
   loadToken: () => {
     if (typeof window !== "undefined") {
       const token = localStorage.getItem("clientToken");
-      // console.log(token);
+      console.log(token);
       set({ token });
     }
   },
