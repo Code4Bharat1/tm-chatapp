@@ -1,22 +1,26 @@
 "use client";
-import React, { useEffect, useState, useRef, useMemo } from "react";
 import { useMessageStore } from "@/store/chat.store.js";
 import {
   ChevronDown,
-  Users,
-  MessageCircle,
-  Plus,
-  X,
-  UserPlus,
-  LogOut,
-  Settings,
-  Search,
-  Trash2,
-  Paperclip,
+  ChevronUp,
   Download,
+  LogOut,
+  Menu,
+  MessageCircle,
   Mic,
+  MoreVertical,
+  Paperclip,
+  Search,
+  Send,
+  Settings,
   StopCircle,
+  Trash2,
+  Users,
+  X,
 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import toast, { Toaster } from "react-hot-toast";
+import FloatingButtons from "./FloatingButtons"; // Adjust the import path as needed
 
 // Counter for generating unique notification IDs
 let notificationIdCounter = 0;
@@ -30,7 +34,6 @@ const GroupChatUI = () => {
     groupName,
     user,
     companyUsers,
-    selectedUsers,
     rooms,
     currentRoom,
     sendMessage,
@@ -40,9 +43,6 @@ const GroupChatUI = () => {
     initializeSocket,
     fetchUser,
     fetchCompanyUsers,
-    toggleSelectedUser,
-    clearSelectedUsers,
-    createRoom,
     joinRoom,
     leaveRoom,
     deleteRoom,
@@ -58,6 +58,8 @@ const GroupChatUI = () => {
     requestVoice,
     deleteFile,
     deleteVoice,
+    loadToken,
+    setToken,
   } = useMessageStore();
 
   const [messageContent, setMessageContent] = useState("");
@@ -65,13 +67,8 @@ const GroupChatUI = () => {
   const [editContent, setEditContent] = useState("");
   const [isDeleting, setIsDeleting] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [roomName, setRoomName] = useState("");
-  const [showCreateRoom, setShowCreateRoom] = useState(false);
-  const [showUserDropdown, setShowUserDropdown] = useState(false);
-  const [searchUsers, setSearchUsers] = useState("");
   const [leavingRoomId, setLeavingRoomId] = useState(null);
   const [deletingRoomId, setDeletingRoomId] = useState(null);
-  const [notifications, setNotifications] = useState([]);
   const [showSettingsDropdown, setShowSettingsDropdown] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -80,14 +77,60 @@ const GroupChatUI = () => {
   const [recordedAudio, setRecordedAudio] = useState(null);
   const [downloadingVoiceId, setDownloadingVoiceId] = useState(null);
   const [deletingFileId, setDeletingFileId] = useState(null);
+
+  // Mobile responsive states
+  const [isMobile, setIsMobile] = useState(false);
+  const [showSidebar, setShowSidebar] = useState(false);
+  const [showMessageActions, setShowMessageActions] = useState(null);
+  const [showOnlineUsers, setShowOnlineUsers] = useState(false);
+
   const settingsRef = useRef(null);
+  const messageActionsRef = useRef(null);
   const fileInputRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
+  const messagesEndRef = useRef(null);
+  const sidebarRef = useRef(null);
+
+  // Mobile detection and resize handler
+  useEffect(() => {
+    const checkIsMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+      if (window.innerWidth >= 768) {
+        setShowSidebar(false);
+      }
+    };
+
+    checkIsMobile();
+    window.addEventListener("resize", checkIsMobile);
+    return () => window.removeEventListener("resize", checkIsMobile);
+  }, []);
+
+  // Auto scroll to bottom on new messages
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  // Close sidebar when clicking outside on mobile
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (sidebarRef.current && !sidebarRef.current.contains(event.target) && showSidebar) {
+        setShowSidebar(false);
+      }
+    };
+
+    if (isMobile) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [isMobile, showSidebar]);
+
+  useEffect(() => {
+    loadToken();
+  }, []);
 
   useEffect(() => {
     const setup = async () => {
-      console.log("Setting up GroupChatUI component...");
       await fetchUser();
       await fetchCompanyUsers();
       initializeSocket();
@@ -102,42 +145,9 @@ const GroupChatUI = () => {
   }, [messageContent, setTyping]);
 
   useEffect(() => {
-    console.log("Messages:", messages);
-    console.log("Current User:", user);
-    console.log("Selected Users:", selectedUsers);
-    console.log("Rooms:", rooms);
-    console.log("Current Room:", currentRoom);
-    console.log("Uploaded Files:", uploadedFiles);
-    console.log("Uploaded Voices:", uploadedVoices);
-    console.log("All Items:", allItems);
-    console.log("Upload Progress:", uploadProgress);
-    console.log("Download Progress:", downloadProgress);
-    console.log("Download Error:", downloadError || "");
-    console.log("Notifications:", notifications);
-  }, [
-    messages,
-    user,
-    selectedUsers,
-    rooms,
-    currentRoom,
-    uploadedFiles,
-    uploadedVoices,
-    uploadProgress,
-    downloadProgress,
-    downloadError,
-    notifications,
-  ]);
-
-  useEffect(() => {
     if (error) {
-      setNotifications((prev) => [
-        ...prev,
-        {
-          id: `notif-${Date.now()}-${notificationIdCounter++}`,
-          message: error,
-          type: "error",
-        },
-      ]);
+      toast.dismiss(`error-${notificationIdCounter}`);
+      toast.error(error, { id: `error-${++notificationIdCounter}` });
       const timer = setTimeout(() => clearError(), 3600);
       return () => clearTimeout(timer);
     }
@@ -145,48 +155,22 @@ const GroupChatUI = () => {
 
   useEffect(() => {
     if (downloadError) {
-      setNotifications((prev) => [
-        ...prev,
-        {
-          id: `notif-${Date.now()}-${notificationIdCounter++}`,
-          message: downloadError,
-          type: "error",
-        },
-      ]);
+      toast.dismiss(`download-error-${notificationIdCounter}`);
+      toast.error(downloadError, { id: `download-error-${++notificationIdCounter}` });
     }
   }, [downloadError]);
 
-  useEffect(() => {
-    const socket = useMessageStore.getState().socket;
-    if (socket) {
-      socket.on("newMessage", (data) => {
-        console.log("📥 [GroupChatUI newMessage]:", data);
-      });
-      socket.on("messageUpdated", (data) => {
-        console.log("📥 [GroupChatUI messageUpdated]:", data);
-      });
-      return () => {
-        socket.off("newMessage");
-        socket.off("messageUpdated");
-      };
-    }
-  }, [currentRoom]);
-
-  useEffect(() => {
-    if (notifications.length > 0) {
-      const timer = setTimeout(() => {
-        setNotifications((prev) => prev.slice(1));
-      }, 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [notifications]);
-
+  // Enhanced click outside handler for all dropdowns
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (settingsRef.current && !settingsRef.current.contains(event.target)) {
         setShowSettingsDropdown(false);
       }
+      if (messageActionsRef.current && !messageActionsRef.current.contains(event.target)) {
+        setShowMessageActions(null);
+      }
     };
+
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
@@ -214,17 +198,12 @@ const GroupChatUI = () => {
 
       mediaRecorderRef.current.start();
       setIsRecording(true);
-      console.log("🎙️ Recording started");
     } catch (error) {
       console.error("Error starting recording:", error.message);
-      setNotifications((prev) => [
-        ...prev,
-        {
-          id: `notif-${Date.now()}-${notificationIdCounter++}`,
-          message: `Failed to start recording: ${error.message}`,
-          type: "error",
-        },
-      ]);
+      toast.dismiss(`recording-error-${notificationIdCounter}`);
+      toast.error(`Failed to start recording: ${error.message}`, {
+        id: `recording-error-${++notificationIdCounter}`,
+      });
     }
   };
 
@@ -232,173 +211,158 @@ const GroupChatUI = () => {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
-      console.log("🎙️ Recording stopped");
     }
   };
 
-  const handleDeleteFile = (fileId) => {
-    if (confirm("Are you sure you want to delete this file?")) {
+  const confirmWithToast = (message, onConfirm) => {
+    return new Promise((resolve) => {
+      toast.dismiss(`confirm-${notificationIdCounter}`);
+      toast(
+        (t) => (
+          <div className="flex flex-col space-y-3">
+            <span className="text-sm font-medium">{message}</span>
+            <div className="flex space-x-2 justify-center">
+              <button
+                onClick={() => {
+                  onConfirm();
+                  toast.dismiss(t.id);
+                  resolve(true);
+                }}
+                className="px-4 py-2 bg-red-600 text-white text-sm rounded hover:bg-red-700"
+              >
+                Confirm
+              </button>
+              <button
+                onClick={() => {
+                  toast.dismiss(t.id);
+                  resolve(false);
+                }}
+                className="px-4 py-2 bg-gray-300 text-gray-800 text-sm rounded hover:bg-gray-400"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ),
+        {
+          id: `confirm-${++notificationIdCounter}`,
+          duration: Infinity,
+          style: {
+            background: "#fef2f2",
+            border: "1px solid #fee2e2",
+            color: "#b91c1c",
+            minWidth: "300px",
+            maxWidth: "400px",
+            padding: "16px",
+            borderRadius: "8px",
+          },
+        }
+      );
+    });
+  };
+
+  const handleDeleteFile = async (fileId) => {
+    const confirmed = await confirmWithToast("Are you sure you want to delete this file?", () => {
       setDeletingFileId(fileId);
       deleteFile(String(fileId));
-      setNotifications((prev) => [
-        ...prev,
-        {
-          id: `notif-${Date.now()}-${notificationIdCounter++}`,
-          message: "File deleted successfully",
-          type: "success",
-        },
-      ]);
+      toast.dismiss(`delete-file-${notificationIdCounter}`);
+      toast.success("File deleted successfully", {
+        id: `delete-file-${++notificationIdCounter}`,
+      });
       setTimeout(() => setDeletingFileId(null), 1000);
-    }
+    });
+    if (!confirmed) return;
   };
 
-  const handleDeleteVoice = (voiceId) => {
-    if (confirm("Are you sure you want to delete this voice message?")) {
+  const handleDeleteVoice = async (voiceId) => {
+    const confirmed = await confirmWithToast("Are you sure you want to delete this voice message?", () => {
       setDeletingFileId(voiceId);
       deleteVoice(String(voiceId));
-      setNotifications((prev) => [
-        ...prev,
-        {
-          id: `notif-${Date.now()}-${notificationIdCounter++}`,
-          message: "Voice message deleted successfully",
-          type: "success",
-        },
-      ]);
+      toast.dismiss(`delete-voice-${notificationIdCounter}`);
+      toast.success("Voice message deleted successfully", {
+        id: `delete-voice-${++notificationIdCounter}`,
+      });
       setTimeout(() => setDeletingFileId(null), 1000);
-    }
+    });
+    if (!confirmed) return;
   };
 
   const handleUnifiedSend = async (e) => {
     e.preventDefault();
     if (!currentRoom) {
-      setNotifications((prev) => [
-        ...prev,
-        {
-          id: `notif-${Date.now()}-${notificationIdCounter++}`,
-          message: "Please join a room to send messages or files",
-          type: "error",
-        },
-      ]);
+      toast.dismiss(`no-room-${notificationIdCounter}`);
+      toast.error("Please join a room to send messages or files", {
+        id: `no-room-${++notificationIdCounter}`,
+      });
       return;
     }
 
     try {
       setIsUploading(true);
 
-      // Handle voice upload
       if (recordedAudio) {
         if (!(recordedAudio instanceof File)) {
           console.error("Invalid voice object:", recordedAudio);
-          setNotifications((prev) => [
-            ...prev,
-            {
-              id: `notif-${Date.now()}-${notificationIdCounter++}`,
-              message: "Invalid voice object",
-              type: "error",
-            },
-          ]);
+          toast.dismiss(`invalid-voice-${notificationIdCounter}`);
+          toast.error("Invalid voice object", {
+            id: `invalid-voice-${++notificationIdCounter}`,
+          });
           return;
         }
-        console.log(
-          "📤 [Uploading voice] name:",
-          recordedAudio.name,
-          "size:",
-          recordedAudio.size,
-          "type:",
-          recordedAudio.type
-        );
-        await uploadVoice(recordedAudio, (progress) => {
-          console.log(`Voice upload progress: ${progress}%`);
+        await uploadVoice(recordedAudio, (progress) => { });
+        toast.dismiss(`voice-upload-${notificationIdCounter}`);
+        toast.success(`Voice message "${recordedAudio.name}" uploaded successfully`, {
+          id: `voice-upload-${++notificationIdCounter}`,
         });
-        setNotifications((prev) => [
-          ...prev,
-          {
-            id: `notif-${Date.now()}-${notificationIdCounter++}`,
-            message: `Voice message "${recordedAudio.name}" uploaded successfully`,
-            type: "success",
-          },
-        ]);
         setRecordedAudio(null);
-        console.log("Voice upload completed successfully");
       }
 
-      // Handle file upload
       if (selectedFile) {
         if (!(selectedFile instanceof File)) {
           console.error("Invalid file object:", selectedFile);
-          setNotifications((prev) => [
-            ...prev,
-            {
-              id: `notif-${Date.now()}-${notificationIdCounter++}`,
-              message: "Invalid file object",
-              type: "error",
-            },
-          ]);
+          toast.dismiss(`invalid-file-${notificationIdCounter}`);
+          toast.error("Invalid file object", {
+            id: `invalid-file-${++notificationIdCounter}`,
+          });
           return;
         }
-        console.log(
-          "📤 [Uploading file] name:",
-          selectedFile.name,
-          "size:",
-          selectedFile.size,
-          "type:",
-          selectedFile.type
-        );
-        await uploadFile(selectedFile, (progress) => {
-          console.log(`File upload progress: ${progress}%`);
+        await uploadFile(selectedFile, (progress) => { });
+        toast.dismiss(`file-upload-${notificationIdCounter}`);
+        toast.success(`File "${selectedFile.name}" uploaded successfully`, {
+          id: `file-upload-${++notificationIdCounter}`,
         });
-        setNotifications((prev) => [
-          ...prev,
-          {
-            id: `notif-${Date.now()}-${notificationIdCounter++}`,
-            message: `File "${selectedFile.name}" uploaded successfully`,
-            type: "success",
-          },
-        ]);
         setSelectedFile(null);
         fileInputRef.current.value = "";
-        console.log("File upload completed successfully");
       }
 
-      // Handle text message
       if (messageContent.trim()) {
         sendMessage(messageContent);
         setMessageContent("");
       }
     } catch (error) {
       console.error("Unified send error:", error.message, error.response?.data);
-      setNotifications((prev) => [
-        ...prev,
-        {
-          id: `notif-${Date.now()}-${notificationIdCounter++}`,
-          message: `Failed to send: ${
-            error.response?.data?.error || error.message
-          }`,
-          type: "error",
-        },
-      ]);
+      toast.dismiss(`send-error-${notificationIdCounter}`);
+      toast.error(`Failed to send: ${error.response?.data?.error || error.message}`, {
+        id: `send-error-${++notificationIdCounter}`,
+      });
     } finally {
       setIsUploading(false);
-      console.log("Unified send process finished, isUploading set to false");
     }
   };
 
   const handleEditMessage = (messageId, currentContent) => {
     setEditingMessageId(messageId);
     setEditContent(currentContent);
+    setShowMessageActions(null);
   };
 
   const handleSaveEdit = (e, messageId) => {
     e.preventDefault();
     if (!editContent.trim()) {
-      setNotifications((prev) => [
-        ...prev,
-        {
-          id: `notif-${Date.now()}-${notificationIdCounter++}`,
-          message: "Edited message cannot be empty",
-          type: "error",
-        },
-      ]);
+      toast.dismiss(`empty-edit-${notificationIdCounter}`);
+      toast.error("Edited message cannot be empty", {
+        id: `empty-edit-${++notificationIdCounter}`,
+      });
       return;
     }
     editMessage(String(messageId), editContent);
@@ -411,12 +375,18 @@ const GroupChatUI = () => {
     setEditContent("");
   };
 
-  const handleDeleteMessage = (messageId) => {
-    if (confirm("Are you sure you want to delete this message?")) {
+  const handleDeleteMessage = async (messageId) => {
+    const confirmed = await confirmWithToast("Are you sure you want to delete this message?", () => {
       setIsDeleting(messageId);
       deleteMessage(String(messageId));
       setIsDeleting(null);
-    }
+      setShowMessageActions(null);
+      toast.dismiss(`delete-message-${notificationIdCounter}`);
+      toast.success("Message deleted successfully", {
+        id: `delete-message-${++notificationIdCounter}`,
+      });
+    });
+    if (!confirmed) return;
   };
 
   const handleInputChange = (e) => {
@@ -424,84 +394,47 @@ const GroupChatUI = () => {
     if (error) clearError();
   };
 
-  const handleCreateRoom = (e) => {
-    e.preventDefault();
-    if (!roomName.trim()) {
-      setNotifications((prev) => [
-        ...prev,
-        {
-          id: `notif-${Date.now()}-${notificationIdCounter++}`,
-          message: "Room name is required",
-          type: "error",
-        },
-      ]);
-      return;
-    }
-    if (selectedUsers.length === 0) {
-      setNotifications((prev) => [
-        ...prev,
-        {
-          id: `notif-${Date.now()}-${notificationIdCounter++}`,
-          message: "Select at least one user for the room",
-          type: "error",
-        },
-      ]);
-      return;
-    }
-    const userIds = selectedUsers.map((u) => u.userId);
-    createRoom(roomName, userIds);
-    setRoomName("");
-    clearSelectedUsers();
-    setShowCreateRoom(false);
-    setSearchUsers("");
-  };
-
   const handleJoinRoom = (roomId) => {
     joinRoom(roomId);
+    if (isMobile) {
+      setShowSidebar(false);
+    }
   };
 
-  const handleLeaveRoom = (roomId) => {
-    if (confirm("Are you sure you want to leave this room?")) {
+  const handleLeaveRoom = async (roomId) => {
+    const confirmed = await confirmWithToast("Are you sure you want to leave this room?", () => {
       setLeavingRoomId(roomId);
       leaveRoom(roomId);
-      setNotifications((prev) => [
-        ...prev,
-        {
-          id: `notif-${Date.now()}-${notificationIdCounter++}`,
-          message: "You have left the room",
-          type: "success",
-        },
-      ]);
+      toast.dismiss(`leave-room-${notificationIdCounter}`);
+      toast.success("You have left the room", {
+        id: `leave-room-${++notificationIdCounter}`,
+      });
       setTimeout(() => setLeavingRoomId(null), 1000);
       setShowSettingsDropdown(false);
-    }
+    });
+    if (!confirmed) return;
   };
 
-  const handleDeleteRoom = (roomId) => {
-    if (
-      confirm(
-        "Are you sure you want to delete this room? This action cannot be undone."
-      )
-    ) {
-      setDeletingRoomId(roomId);
-      deleteRoom(roomId);
-      setNotifications((prev) => [
-        ...prev,
-        {
-          id: `notif-${Date.now()}-${notificationIdCounter++}`,
-          message: "You have deleted the room",
-          type: "success",
-        },
-      ]);
-      setTimeout(() => setDeletingRoomId(null), 1000);
-      setShowSettingsDropdown(false);
-    }
+  const handleDeleteRoom = async (roomId) => {
+    const confirmed = await confirmWithToast(
+      "Are you sure you want to delete this room? This action cannot be undone.",
+      () => {
+        setDeletingRoomId(roomId);
+        deleteRoom(roomId);
+        toast.dismiss(`delete-room-${notificationIdCounter}`);
+        toast.success("You have deleted the room", {
+          id: `delete-room-${++notificationIdCounter}`,
+        });
+        setTimeout(() => setDeletingRoomId(null), 1000);
+        setShowSettingsDropdown(false);
+      }
+    );
+    if (!confirmed) return;
   };
 
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
-      console.log("Selected file:", file.name, file.size, file.type);
       setSelectedFile(file);
     } else {
       setSelectedFile(null);
@@ -513,14 +446,10 @@ const GroupChatUI = () => {
     requestFile(fileId);
     const file = uploadedFiles.find((f) => String(f._id) === String(fileId));
     if (file) {
-      setNotifications((prev) => [
-        ...prev,
-        {
-          id: `notif-${Date.now()}-${notificationIdCounter++}`,
-          message: `Downloading ${file.file.originalName}...`,
-          type: "info",
-        },
-      ]);
+      toast.dismiss(`download-file-${notificationIdCounter}`);
+      toast(`Downloading ${file.file.originalName}...`, {
+        id: `download-file-${++notificationIdCounter}`,
+      });
     }
     setTimeout(() => setDownloadingFileId(null), 1000);
   };
@@ -530,45 +459,19 @@ const GroupChatUI = () => {
     requestVoice(voiceId);
     const voice = uploadedVoices.find((v) => String(v._id) === String(voiceId));
     if (voice) {
-      setNotifications((prev) => [
-        ...prev,
-        {
-          id: `notif-${Date.now()}-${notificationIdCounter++}`,
-          message: `Downloading ${voice.voice.originalName}...`,
-          type: "info",
-        },
-      ]);
+      toast.dismiss(`download-voice-${notificationIdCounter}`);
+      toast(`Downloading ${voice.voice.originalName}...`, {
+        id: `download-voice-${++notificationIdCounter}`,
+      });
     }
     setTimeout(() => setDownloadingVoiceId(null), 1000);
   };
-
-  const filteredUsers = companyUsers.filter(
-    (u) =>
-      u.firstName.toLowerCase().includes(searchUsers.toLowerCase()) ||
-      u.position.toLowerCase().includes(searchUsers.toLowerCase())
-  );
-
-  const roomMessages = messages.filter(
-    (msg) =>
-      String(msg.roomId) === String(currentRoom) && !msg.voice && !msg.file
-  );
-
-  const roomFiles = uploadedFiles.filter(
-    (file) => String(file.roomId) === String(currentRoom)
-  );
-
-  const roomVoices = uploadedVoices.filter(
-    (voice) => String(voice.roomId) === String(currentRoom)
-  );
 
   const allItems = useMemo(() => {
     return messages
       .filter((item) => String(item.roomId) === String(currentRoom))
       .filter((item) => {
-        // Skip system-generated messages
-        if (item.userId === "system" || item.username === "System")
-          return false;
-        // Skip text messages that are redundant for file/voice uploads
+        if (item.userId === "system" || item.username === "System") return false;
         const systemUploadMessages = [
           "voice message uploaded",
           "file uploaded",
@@ -613,8 +516,8 @@ const GroupChatUI = () => {
 
   if (!user || !user.userId) {
     return (
-      <div className="flex h-screen items-center justify-center bg-gradient-to-br from-red-50 to-pink-100">
-        <div className="text-center bg-white p-8 rounded-lg shadow-lg">
+      <div className="flex h-screen items-center justify-center bg-gradient-to-br from-red-50 to-pink-100 px-4">
+        <div className="text-center bg-white p-8 rounded-lg shadow-lg max-w-sm w-full">
           <div className="text-red-500 mb-4">
             <Users size={48} className="mx-auto" />
           </div>
@@ -627,161 +530,45 @@ const GroupChatUI = () => {
   }
 
   return (
-    <div className="flex h-screen bg-gray-50">
-      <div className="w-80 bg-white border-r border-gray-200 flex flex-col shadow-lg">
-        <div className="p-6 border-b border-gray-200 bg-gradient-to-r from-blue-600 to-indigo-600 text-white">
+    <div className="flex h-screen bg-gray-50 relative">
+      <Toaster position="top-center" reverseOrder={false} />
+      {/* Mobile Sidebar Overlay */}
+      {isMobile && showSidebar && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm bg-opacity-50 z-40"
+          onClick={() => setShowSidebar(false)}
+        />
+      )}
+
+      {/* Sidebar */}
+      <div
+        ref={sidebarRef}
+        className={`${isMobile
+          ? `fixed left-0 top-0 h-full w-80 bg-white shadow-2xl z-50 transform transition-transform duration-300 ${showSidebar ? "translate-x-0" : "-translate-x-full"}`
+          : "w-80 bg-white border-r border-gray-200 shadow-lg"
+          } flex flex-col`}
+      >
+        {/* Sidebar Header */}
+        <div className="p-4 sm:p-6 border-b border-gray-200 bg-gradient-to-r from-blue-600 to-indigo-600 text-white">
           <div className="flex items-center justify-between mb-4">
-            <h1 className="text-xl font-bold flex items-center">
-              <MessageCircle className="mr-2" size={24} />
+            <h1 className="text-lg sm:text-xl font-bold flex items-center">
+              <MessageCircle className="mr-2" size={isMobile ? 20 : 24} />
               Chat Rooms
             </h1>
-            <button
-              onClick={() => setShowCreateRoom(!showCreateRoom)}
-              className="bg-white/20 hover:bg-white/30 p-2 rounded-lg transition-colors"
-              title="Create new room"
-            >
-              <Plus size={20} />
-            </button>
+            {isMobile && (
+              <button
+                onClick={() => setShowSidebar(false)}
+                className="bg-white/20 hover:bg-white/30 p-2 rounded-lg transition-colors"
+                title="Close sidebar"
+              >
+                <X size={18} />
+              </button>
+            )}
           </div>
           <div className="text-sm opacity-90">Welcome, {user.firstName}</div>
         </div>
-        {showCreateRoom && (
-          <div className="p-4 border-b border-gray-200 bg-blue-50">
-            <div className="space-y-3">
-              <div>
-                <input
-                  type="text"
-                  value={roomName}
-                  onChange={(e) => setRoomName(e.target.value)}
-                  placeholder="Enter room name..."
-                  className="w-full p-3 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setShowUserDropdown(!showUserDropdown)}
-                  className="w-full p-3 border border-gray-300 rounded-lg text-sm bg-white flex items-center justify-between hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <span className="text-gray-700">
-                    {selectedUsers.length > 0
-                      ? `${selectedUsers.length} user${
-                          selectedUsers.length > 1 ? "s" : ""
-                        } selected`
-                      : "Select users..."}
-                  </span>
-                  <ChevronDown
-                    size={16}
-                    className={`transform transition-transform ${
-                      showUserDropdown ? "rotate-180" : ""
-                    }`}
-                  />
-                </button>
-                {showUserDropdown && (
-                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-300 rounded-lg shadow-lg z-10 max-h-60 overflow-hidden">
-                    <div className="p-2 border-b border-gray-200">
-                      <div className="relative">
-                        <Search
-                          size={16}
-                          className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"
-                        />
-                        <input
-                          type="text"
-                          placeholder="Search users..."
-                          value={searchUsers}
-                          onChange={(e) => setSearchUsers(e.target.value)}
-                          className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
-                        />
-                      </div>
-                    </div>
-                    <div className="max-h-40 overflow-y-auto">
-                      {filteredUsers.length === 0 ? (
-                        <p className="p-3 text-gray-500 text-sm text-center">
-                          No users found
-                        </p>
-                      ) : (
-                        filteredUsers.map((u) => (
-                          <div
-                            key={u.userId}
-                            className={`p-3 cursor-pointer hover:bg-blue-50 flex items-center transition-colors ${
-                              selectedUsers.some(
-                                (s) => String(s.userId) === String(u.userId)
-                              )
-                                ? "bg-blue-100"
-                                : ""
-                            }`}
-                            onClick={() => toggleSelectedUser(u.userId)}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={selectedUsers.some(
-                                (s) => String(s.userId) === String(u.userId)
-                              )}
-                              onChange={() => toggleSelectedUser(u.userId)}
-                              className="mr-3 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                            />
-                            <div className="flex-1">
-                              <div className="text-sm font-medium text-gray-900">
-                                {u.firstName}
-                              </div>
-                              <div className="text-xs text-gray-500">
-                                {u.position}
-                              </div>
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-              {selectedUsers.length > 0 && (
-                <div className="space-y-2">
-                  <div className="text-sm font-medium text-gray-700">
-                    Selected users:
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {selectedUsers.map((u) => (
-                      <span
-                        key={u.userId}
-                        className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800"
-                      >
-                        {u.firstName}
-                        <button
-                          type="button"
-                          onClick={() => toggleSelectedUser(u.userId)}
-                          className="ml-1 hover:text-blue-600"
-                        >
-                          <X size={12} />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-              <div className="flex space-x-2">
-                <button
-                  onClick={handleCreateRoom}
-                  className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed transition-colors"
-                  disabled={!roomName.trim() || selectedUsers.length === 0}
-                >
-                  Create Room
-                </button>
-                <button
-                  onClick={() => {
-                    setShowCreateRoom(false);
-                    setRoomName("");
-                    clearSelectedUsers();
-                    setSearchUsers("");
-                  }}
-                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-300 transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+
+        {/* Rooms List */}
         <div className="flex-1 overflow-y-auto">
           <div className="p-4">
             <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center">
@@ -792,37 +579,31 @@ const GroupChatUI = () => {
               {rooms.map((room) => (
                 <div
                   key={room.roomId}
-                  className={`p-3 rounded-lg transition-all ${
-                    currentRoom === room.roomId
-                      ? "bg-blue-100 border-l-4 border-blue-500"
-                      : "bg-gray-50 hover:bg-gray-100"
-                  }`}
+                  className={`p-3 rounded-lg transition-all ${currentRoom === room.roomId
+                    ? "bg-blue-100 border-l-4 border-blue-500"
+                    : "bg-gray-50 hover:bg-gray-100"
+                    }`}
                 >
                   <div className="flex items-center justify-between">
                     <div
-                      className="flex-1 cursor-pointer"
+                      className="flex-1 cursor-pointer min-w-0"
                       onClick={() => handleJoinRoom(room.roomId)}
                     >
-                      <div className="font-medium text-gray-900 text-sm">
+                      <div className="font-medium text-gray-900 text-sm truncate">
                         {room.roomName}
                       </div>
                       <div className="text-xs text-gray-500">Custom room</div>
                     </div>
-                    <div className="flex items-center space-x-2">
+                    <div className="flex items-center space-x-2 ml-2">
                       {currentRoom === room.roomId && (
                         <div className="w-2 h-2 bg-green-500 rounded-full"></div>
                       )}
-                      {currentRoom === room.roomId ? (
+                      {currentRoom === room.roomId && (
                         <button
                           onClick={() => handleLeaveRoom(room.roomId)}
-                          className={`text-red-500 hover:text-red-700 p-1 ${
-                            leavingRoomId === room.roomId
-                              ? "opacity-50 cursor-not-allowed"
-                              : ""
-                          }`}
+                          className={`text-red-500 hover:text-red-700 p-1 ${leavingRoomId === room.roomId ? "opacity-50 cursor-not-allowed" : ""}`}
                           title="Leave room"
                           disabled={leavingRoomId === room.roomId}
-                          aria-label="Leave room"
                         >
                           {leavingRoomId === room.roomId ? (
                             <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-500"></div>
@@ -830,14 +611,19 @@ const GroupChatUI = () => {
                             <LogOut size={14} />
                           )}
                         </button>
-                      ) : (
+                      )}
+                      {String(room.createdBy) === String(user.userId) && (
                         <button
-                          onClick={() => handleJoinRoom(room.roomId)}
-                          className="text-blue-500 hover:text-blue-700 p-1"
-                          title="Join room"
-                          aria-label="Join room"
+                          onClick={() => handleDeleteRoom(room.roomId)}
+                          className={`text-red-500 hover:text-red-700 p-1 ${deletingRoomId === room.roomId ? "opacity-50 cursor-not-allowed" : ""}`}
+                          title="Delete room"
+                          disabled={deletingRoomId === room.roomId}
                         >
-                          <UserPlus size={14} />
+                          {deletingRoomId === room.roomId ? (
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-500"></div>
+                          ) : (
+                            <Trash2 size={14} />
+                          )}
                         </button>
                       )}
                     </div>
@@ -846,90 +632,82 @@ const GroupChatUI = () => {
               ))}
               {rooms.length === 0 && (
                 <div className="text-center py-8 text-gray-500">
-                  <Users size={24} className="mx-auto mb-2 opacity-50" />
-                  <p className="text-sm">No custom rooms yet</p>
-                  <p className="text-xs">Create your first room above</p>
+                  <MessageCircle size={32} className="mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">No rooms available</p>
+                  <p className="text-xs">Join a room to start chatting</p>
                 </div>
               )}
             </div>
           </div>
-          {onlineUsers.length > 0 && (
-            <div className="p-4 border-t border-gray-200">
-              <h3 className="text-sm font-semibold text-gray-700 mb-3">
-                Online Users
-              </h3>
-              <div className="space-y-2">
-                {onlineUsers.map((u) => (
-                  <div
-                    key={u.userId}
-                    className="flex items-center space-x-3 p-2 rounded-lg bg-gray-50"
-                  >
-                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                    <div className="flex-1">
-                      <div className="text-sm font-medium text-gray-900">
-                        {u.username}
-                      </div>
-                      {isTyping[u.userId] && (
-                        <div className="text-xs text-gray-500 italic">
-                          typing...
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+        </div>
+
+        {/* Floating Buttons Area */}
+        <div className="p-8  border-t border-gray-200 bg-white">
+          <FloatingButtons />
         </div>
       </div>
-      {!currentRoom ? (
-        <div className="flex-1 flex items-center justify-center bg-gray-50">
-          <div className="text-center max-w-md">
-            <MessageCircle size={64} className="mx-auto mb-4 text-gray-300" />
-            <h2 className="text-xl font-semibold text-gray-700 mb-2">
-              Select a Room to Start Chatting
-            </h2>
-            <p className="text-gray-500">
-              Choose a room from the sidebar to begin your conversation
-            </p>
-          </div>
-        </div>
-      ) : (
-        <div className="flex-1 flex flex-col">
-          <div className="bg-white border-b border-gray-200 p-4 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-semibold text-gray-900 flex items-center">
-                  <MessageCircle className="mr-2" size={20} />
-                  {groupName}
-                </h2>
-                <p className="text-sm text-gray-500">
-                  {onlineUsers.length} user
-                  {onlineUsers.length !== 1 ? "s" : ""} online
-                </p>
-              </div>
-              <div className="flex items-center space-x-2" ref={settingsRef}>
+
+      {/* Main Chat Area */}
+      <div className="flex-1 flex flex-col">
+        {/* Chat Header */}
+        <div className="bg-white border-b border-gray-200 p-4 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              {isMobile && (
                 <button
-                  onClick={() => setShowSettingsDropdown(!showSettingsDropdown)}
-                  className="text-gray-400 hover:text-gray-600 p-1 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  aria-label="Room settings"
-                  aria-expanded={showSettingsDropdown}
+                  onClick={() => setShowSidebar(true)}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                  title="Open sidebar"
                 >
-                  <Settings size={20} />
+                  <Menu size={20} />
                 </button>
-                {showSettingsDropdown && (
-                  <div className="absolute top-14 right-4 bg-white border border-gray-300 rounded-lg shadow-lg z-10 w-48">
-                    {currentRoom !== `company_${user.companyId}` && (
-                      <>
+              )}
+              <div className="flex-1 min-w-0">
+                {currentRoom ? (
+                  <>
+                    <h2 className="text-lg font-semibold text-gray-900 truncate">
+                      {currentRoomData.roomName || groupName || "Chat Room"}
+                    </h2>
+                    <div className="flex items-center space-x-4 text-sm text-gray-500">
+                      <div className="flex items-center">
+                        <Users size={14} className="mr-1" />
+                        <span>{onlineUsers.length} online</span>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <h2 className="text-lg font-semibold text-gray-500">
+                    Select a room to start chatting
+                  </h2>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              {currentRoom && (
+                <div className="relative" ref={settingsRef}>
+                  <button
+                    onClick={() => {
+                      console.log("Opening settings dropdown", {
+                        currentRoomData,
+                        userId: user.userId,
+                        createdBy: currentRoomData.createdBy,
+                        isCreator: String(currentRoomData.createdBy) === String(user.userId),
+                      });
+                      setShowSettingsDropdown(!showSettingsDropdown);
+                    }}
+                    className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                    title="Room settings"
+                  >
+                    <Settings size={20} />
+                  </button>
+                  {showSettingsDropdown && (
+                    <div className="absolute right-0 top-full mt-2 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
+                      <div className="py-1">
                         <button
                           onClick={() => handleLeaveRoom(currentRoom)}
-                          className={`w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center ${
-                            leavingRoomId === currentRoom
-                              ? "opacity-50 cursor-not-allowed"
-                              : ""
-                          }`}
+                          className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center"
                           disabled={leavingRoomId === currentRoom}
-                          aria-label="Leave current room"
                         >
                           {leavingRoomId === currentRoom ? (
                             <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-500 mr-2"></div>
@@ -938,435 +716,380 @@ const GroupChatUI = () => {
                           )}
                           Leave Room
                         </button>
-                        {currentRoomData.creator === user.userId && (
-                          <button
-                            onClick={() => handleDeleteRoom(currentRoom)}
-                            className={`w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center ${
-                              deletingRoomId === currentRoom
-                                ? "opacity-50 cursor-not-allowed"
-                                : ""
-                            }`}
-                            disabled={deletingRoomId === currentRoom}
-                            aria-label="Delete current room"
-                          >
-                            {deletingRoomId === currentRoom ? (
-                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-500 mr-2"></div>
-                            ) : (
-                              <Trash2 size={16} className="mr-2" />
-                            )}
-                            Delete Room
-                          </button>
+
+                        {/* Add this condition to show Delete Room only for room creator */}
+                        <button
+                          onClick={() => handleDeleteRoom(currentRoom)}
+                          className="w-full px-4 py-2 text-left text-red-600 hover:bg-red-50 rounded-b-lg transition-colors flex items-center bg-red-100"
+                        >
+                          <Trash2 size={16} className="mr-2" />
+                          Delete Room
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Online Users Panel */}
+        {showOnlineUsers && currentRoom && (
+          <div className="bg-blue-50 border-b border-gray-200 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-gray-700 flex items-center">
+                <Users size={16} className="mr-2" />
+                Online Users ({onlineUsers.length})
+              </h3>
+              <button
+                onClick={() => setShowOnlineUsers(false)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <ChevronUp size={16} />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Messages Area */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
+          {!currentRoom ? (
+            <div className="flex items-center justify-center h-full">
+              <div className="text-center">
+                <MessageCircle size={48} className="mx-auto mb-4 text-gray-400" />
+                <p className="text-gray-500 text-lg font-medium">Welcome to the chat!</p>
+                <p className="text-gray-400 text-sm">
+                  Select a room from the sidebar to start chatting
+                </p>
+              </div>
+            </div>
+          ) : allItems.length === 0 ? (
+            <div className="flex items-center justify-center h-full">
+              <div className="text-center">
+                <MessageCircle size={48} className="mx-auto mb-4 text-gray-400" />
+                <p className="text-gray-500 text-lg font-medium">No messages yet</p>
+                <p className="text-gray-400 text-sm">
+                  Start the conversation by sending a message
+                </p>
+              </div>
+            </div>
+          ) : (
+            allItems.map((item) => (
+              <div
+                key={`${item.type}-${item.id}`}
+                className={`flex ${item.userId === user.userId ? "justify-end" : "justify-start"}`}
+              >
+                <div
+                  className={`max-w-xs sm:max-w-md lg:max-w-lg xl:max-w-xl relative group ${item.userId === user.userId
+                    ? "bg-blue-600 text-white rounded-tl-2xl rounded-tr-sm rounded-bl-2xl rounded-br-2xl"
+                    : "bg-white text-gray-900 rounded-tl-sm rounded-tr-2xl rounded-bl-2xl rounded-br-2xl border border-gray-200"
+                    } p-4 shadow-sm`}
+                >
+                  {/* Message Actions */}
+                  {item.userId === user.userId && (
+                    <div className="absolute -left-8 top-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="relative" ref={messageActionsRef}>
+                        <button
+                          onClick={() =>
+                            setShowMessageActions(
+                              showMessageActions === item.id ? null : item.id
+                            )
+                          }
+                          className="p-1 hover:bg-gray-200 rounded transition-colors"
+                          title="Message options"
+                        >
+                          <MoreVertical size={16} className="text-gray-500" />
+                        </button>
+                        {showMessageActions === item.id && (
+                          <div className="absolute left-0 top-full mt-1 w-32 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
+                            <div className="py-1">
+                              {item.type === "message" && (
+                                <button
+                                  onClick={() => handleEditMessage(item.id, item.content)}
+                                  className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                                >
+                                  Edit
+                                </button>
+                              )}
+                              <button
+                                onClick={() => handleDeleteMessage(item.id)}
+                                className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+                                disabled={isDeleting === item.id}
+                              >
+                                {isDeleting === item.id ? "Deleting..." : "Delete"}
+                              </button>
+                            </div>
+                          </div>
                         )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Message Header */}
+                  <div className="flex items-center justify-between mb-1 gap-10">
+                    <span
+                      className={`text-xs font-medium ${item.userId === user.userId ? "text-blue-100" : "text-gray-600"
+                        }`}
+                    >
+                      {item.username}
+                    </span>
+                    <span
+                      className={`text-xs ${item.userId === user.userId ? "text-blue-100" : "text-gray-500"}`}
+                    >
+                      {new Date(item.timestamp).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                      {item.updatedAt && item.updatedAt !== item.timestamp && (
+                        <span className="ml-1 opacity-75">(edited)</span>
+                      )}
+                    </span>
+                  </div>
+
+                  {/* Message Content */}
+                  {editingMessageId === item.id ? (
+                    <form onSubmit={(e) => handleSaveEdit(e, item.id)} className="space-y-2">
+                      <textarea
+                        value={editContent}
+                        onChange={(e) => setEditContent(e.target.value)}
+                        className="w-full p-2 border border-gray-300 rounded-lg text-gray-900 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        rows="3"
+                        placeholder="Edit your message..."
+                      />
+                      <div className="flex space-x-2">
+                        <button
+                          type="submit"
+                          className="px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition-colors"
+                        >
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleCancelEdit}
+                          className="px-3 py-1 bg-gray-400 text-white text-xs rounded hover:bg-gray-500 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <>
+                      {item.type === "message" && (
+                        <p className="text-sm leading-relaxed break-words">{item.content}</p>
+                      )}
+
+                      {item.type === "file" && item.file && (
+                        <div className="space-y-2">
+                          <div className="flex items-center space-x-2">
+                            <Paperclip size={16} />
+                            <span className="text-sm font-medium">{item.file.originalName}</span>
+                          </div>
+                          <div className="text-xs opacity-75">
+                            Size: {(item.file.size / 1024).toFixed(1)} KB
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <button
+                              onClick={() => handleFileClick(item.id)}
+                              className={`inline-flex items-center px-3 py-1 text-xs rounded transition-colors ${item.userId === user.userId
+                                ? "bg-blue-500 hover:bg-blue-400 text-white"
+                                : "bg-blue-600 hover:bg-blue-700 text-white"
+                                } ${downloadingFileId === item.id ? "opacity-50 cursor-not-allowed" : ""}`}
+                              disabled={downloadingFileId === item.id}
+                            >
+                              {downloadingFileId === item.id ? (
+                                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-1"></div>
+                              ) : (
+                                <Download size={12} className="mr-1" />
+                              )}
+                              Download
+                            </button>
+                            {item.userId === user.userId && (
+                              <button
+                                onClick={() => handleDeleteFile(item.id)}
+                                className={`inline-flex items-center px-3 py-1 text-xs rounded transition-colors bg-red-600 hover:bg-red-700 text-white ${deletingFileId === item.id ? "opacity-50 cursor-not-allowed" : ""
+                                  }`}
+                                disabled={deletingFileId === item.id}
+                              >
+                                {deletingFileId === item.id ? (
+                                  <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-1"></div>
+                                ) : (
+                                  <Trash2 size={12} className="mr-1" />
+                                )}
+                                Delete
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {item.type === "voice" && item.voice && (
+                        <div className="space-y-2">
+                          <div className="flex items-center space-x-2">
+                            <Mic size={16} />
+                            <span className="text-sm font-medium">Voice Message</span>
+                          </div>
+                          <div className="text-xs opacity-75">Duration: {item.voice.originalName}</div>
+                          <div className="flex items-center space-x-2">
+                            <button
+                              onClick={() => handleVoiceClick(item.id)}
+                              className={`inline-flex items-center px-3 py-1 text-xs rounded transition-colors ${item.userId === user.userId
+                                ? "bg-blue-500 hover:bg-blue-400 text-white"
+                                : "bg-blue-600 hover:bg-blue-700 text-white"
+                                } ${downloadingVoiceId === item.id ? "opacity-50 cursor-not-allowed" : ""}`}
+                              disabled={downloadingVoiceId === item.id}
+                            >
+                              {downloadingVoiceId === item.id ? (
+                                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-1"></div>
+                              ) : (
+                                <Download size={12} className="mr-1" />
+                              )}
+                              Play/Download
+                            </button>
+                            {item.userId === user.userId && (
+                              <button
+                                onClick={() => handleDeleteVoice(item.id)}
+                                className={`inline-flex items-center px-3 py-1 text-xs rounded transition-colors bg-red-600 hover:bg-red-700 text-white ${deletingFileId === item.id ? "opacity-50 cursor-not-allowed" : ""
+                                  }`}
+                                disabled={deletingFileId === item.id}
+                              >
+                                {deletingFileId === item.id ? (
+                                  <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-1"></div>
+                                ) : (
+                                  <Trash2 size={12} className="mr-1" />
+                                )}
+                                Delete
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* Message Input */}
+        {currentRoom && (
+          <div className="bg-white border-t border-gray-200 p-4">
+            {/* File/Voice Preview */}
+            {(selectedFile || recordedAudio) && (
+              <div className="mb-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2 text-sm">
+                    {selectedFile && (
+                      <>
+                        <Paperclip size={16} className="text-blue-600" />
+                        <span className="font-medium text-blue-800 truncate max-w-48">
+                          {selectedFile.name}
+                        </span>
+                        <span className="text-blue-600">({(selectedFile.size / 1024).toFixed(1)} KB)</span>
+                      </>
+                    )}
+                    {recordedAudio && (
+                      <>
+                        <Mic size={16} className="text-blue-600" />
+                        <span className="font-medium text-blue-800">Voice message ready</span>
                       </>
                     )}
                   </div>
-                )}
-              </div>
-            </div>
-          </div>
-          <div className="flex-1 p-4 overflow-y-auto bg-gray-50">
-            {allItems.length === 0 ? (
-              <div className="text-center py-12">
-                <MessageCircle
-                  size={48}
-                  className="mx-auto mb-4 text-gray-300"
-                />
-                <p className="text-gray-500 font-medium">
-                  No messages, files, or voice messages yet
-                </p>
-                <p className="text-gray-400 text-sm">
-                  Be the first to say something or upload a file/voice message!
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {allItems.map((item) =>
-                  !item.id || !item.userId ? null : (
-                    <div
-                      key={`${item.id}-${item.type}`}
-                      className={`flex ${
-                        String(item.userId) === String(user.userId)
-                          ? "justify-end"
-                          : "justify-start"
-                      }`}
-                    >
-                      <div
-                        className={`max-w-[70%] rounded-lg p-4 shadow-sm ${
-                          String(item.userId) === String(user.userId)
-                            ? "bg-blue-600 text-white"
-                            : "bg-white text-gray-900"
-                        } ${
-                          isDeleting === item.id || deletingFileId === item.id
-                            ? "opacity-50"
-                            : ""
-                        } transition-all hover:shadow-md`}
-                      >
-                        <div className="flex justify-between items-start">
-                          <div className="flex-1">
-                            <p
-                              className={`text-sm font-medium mb-1 ${
-                                String(item.userId) === String(user.userId)
-                                  ? "text-blue-100"
-                                  : "text-gray-600"
-                              }`}
-                            >
-                              {item.username || "Anonymous"}
-                            </p>
-                            {item.type === "message" &&
-                            editingMessageId === item.id ? (
-                              <form
-                                onSubmit={(e) => handleSaveEdit(e, item.id)}
-                                className="space-y-2"
-                              >
-                                <input
-                                  type="text"
-                                  value={editContent}
-                                  onChange={(e) =>
-                                    setEditContent(e.target.value)
-                                  }
-                                  className="w-full p-2 border border-gray-300 rounded text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                  placeholder="Edit your message..."
-                                  autoFocus
-                                />
-                                <div className="flex space-x-2">
-                                  <button
-                                    type="submit"
-                                    className="bg-green-500 text-white px-3 py-1 rounded text-xs hover:bg-green-600 disabled:bg-green-300"
-                                    disabled={!editContent.trim()}
-                                  >
-                                    Save
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={handleCancelEdit}
-                                    className="bg-gray-400 text-white px-3 py-1 rounded text-xs hover:bg-gray-500"
-                                  >
-                                    Cancel
-                                  </button>
-                                </div>
-                              </form>
-                            ) : (
-                              <>
-                                <p className="text-sm">{item.content}</p>
-                                {item.type === "file" && item.file && (
-                                  <div className="flex items-center space-x-2 mt-2">
-                                    <a
-                                      href="#"
-                                      onClick={(e) => {
-                                        e.preventDefault();
-                                        handleFileClick(item.id);
-                                      }}
-                                      className={`text-sm flex items-center space-x-1 ${
-                                        String(item.userId) ===
-                                        String(user.userId)
-                                          ? "text-blue-200 hover:underline"
-                                          : "text-blue-600 hover:underline"
-                                      }`}
-                                    >
-                                      <Download size={14} />
-                                      <span>
-                                        {item.file.originalName} (
-                                        {(item.file.size / 1024).toFixed(2)} KB)
-                                      </span>
-                                    </a>
-                                    {downloadingFileId === item.id &&
-                                      downloadProgress > 0 && (
-                                        <span className="text-xs text-gray-400">
-                                          ({downloadProgress}%)
-                                        </span>
-                                      )}
-                                  </div>
-                                )}
-                                {item.type === "voice" && item.voice && (
-                                  <div className="flex flex-col space-y-2 mt-2">
-                                    <audio
-                                      controls
-                                      src={item.voice.url}
-                                      className="w-full max-w-xs"
-                                    />
-                                    <div className="flex items-center space-x-2">
-                                      <a
-                                        href="#"
-                                        onClick={(e) => {
-                                          e.preventDefault();
-                                          handleVoiceClick(item.id);
-                                        }}
-                                        className={`text-sm flex items-center space-x-1 ${
-                                          String(item.userId) ===
-                                          String(user.userId)
-                                            ? "text-blue-200 hover:underline"
-                                            : "text-blue-600 hover:underline"
-                                        }`}
-                                      >
-                                        <Download size={14} />
-                                        <span>
-                                          {item?.voice?.originalName ||
-                                            "Voice message"}{" "}
-                                          (
-                                          {(item?.voice?.size / 1024).toFixed(
-                                            2
-                                          )}{" "}
-                                          KB)
-                                        </span>
-                                      </a>
-                                      {downloadingVoiceId === item.id &&
-                                        downloadProgress > 0 && (
-                                          <span className="text-xs text-gray-400">
-                                            ({downloadProgress}%)
-                                          </span>
-                                        )}
-                                    </div>
-                                  </div>
-                                )}
-                              </>
-                            )}
-                            <div
-                              className={`text-xs mt-2 ${
-                                String(item.userId) === String(user.userId)
-                                  ? "text-blue-200"
-                                  : "text-gray-400"
-                              }`}
-                            >
-                              {new Date(item.timestamp).toLocaleTimeString()}
-                              {item.updatedAt && (
-                                <span className="ml-2 italic"> (edited)</span>
-                              )}
-                            </div>
-                          </div>
-                          {String(item.userId) === String(user.userId) &&
-                            (item.type === "message" ? (
-                              editingMessageId !== item.id && (
-                                <div className="ml-3 flex space-x-2">
-                                  <button
-                                    onClick={() =>
-                                      handleEditMessage(item.id, item.content)
-                                    }
-                                    className="text-blue-200 hover:underline text-xs"
-                                    disabled={isDeleting === item.id}
-                                  >
-                                    Edit
-                                  </button>
-                                  <button
-                                    onClick={() => handleDeleteMessage(item.id)}
-                                    className="text-blue-200 hover:underline text-xs"
-                                    disabled={isDeleting === item.id}
-                                  >
-                                    Delete
-                                  </button>
-                                </div>
-                              )
-                            ) : (
-                              <div className="ml-3 flex space-x-2">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    item.type === "file"
-                                      ? handleDeleteFile(item.id)
-                                      : handleDeleteVoice(item.id)
-                                  }
-                                  className="text-blue-200 hover:underline text-xs"
-                                  disabled={deletingFileId === item.id}
-                                >
-                                  {deletingFileId === item.id ? (
-                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-200"></div>
-                                  ) : (
-                                    "Delete"
-                                  )}
-                                </button>
-                              </div>
-                            ))}
-                        </div>
-                      </div>
-                    </div>
-                  )
-                )}
-              </div>
-            )}
-            {Object.keys(isTyping).length > 0 && (
-              <div className="text-sm text-gray-500 italic mt-4 px-4">
-                {Object.values(isTyping)
-                  .filter((username) => username !== user.firstName)
-                  .join(", ")}{" "}
-                {Object.values(isTyping).length > 1 ? "are" : "is"} typing...
-              </div>
-            )}
-            {notifications.length > 0 && (
-              <div className="fixed top-4 left-4 space-y-2 max-w-md">
-                {notifications.map((notification) => (
-                  <div
-                    key={notification.id}
-                    className={`bg-${
-                      notification.type === "success"
-                        ? "green"
-                        : notification.type === "warning"
-                        ? "yellow"
-                        : notification.type === "error"
-                        ? "red"
-                        : "blue"
-                    }-100 border border-${
-                      notification.type === "success"
-                        ? "green"
-                        : notification.type === "warning"
-                        ? "yellow"
-                        : notification.type === "error"
-                        ? "red"
-                        : "blue"
-                    }-400 text-${
-                      notification.type === "success"
-                        ? "green"
-                        : notification.type === "warning"
-                        ? "yellow"
-                        : notification.type === "error"
-                        ? "red"
-                        : "blue"
-                    }-700 px-4 py-3 rounded-lg shadow-lg flex justify-between items-center`}
-                  >
-                    <span className="text-sm">{notification.message}</span>
-                    <button
-                      onClick={() =>
-                        setNotifications((prev) =>
-                          prev.filter((n) => n.id !== notification.id)
-                        )
+                  <button
+                    onClick={() => {
+                      setSelectedFile(null);
+                      setRecordedAudio(null);
+                      if (fileInputRef.current) {
+                        fileInputRef.current.value = "";
                       }
-                      className={`ml-3 text-${
-                        notification.type === "success"
-                          ? "green"
-                          : notification.type === "warning"
-                          ? "yellow"
-                          : notification.type === "error"
-                          ? "red"
-                          : "blue"
-                      }-500 hover:text-${
-                        notification.type === "success"
-                          ? "green"
-                          : notification.type === "warning"
-                          ? "yellow"
-                          : notification.type === "error"
-                          ? "red"
-                          : "blue"
-                      }-700 font-bold`}
-                    >
-                      <X size={16} />
-                    </button>
-                  </div>
-                ))}
+                    }}
+                    className="text-blue-600 hover:text-blue-800 p-1"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
               </div>
             )}
-          </div>
-          <form
-            onSubmit={handleUnifiedSend}
-            className="p-4 bg-white border-t border-gray-200"
-          >
-            <div className="flex items-center space-x-3">
-              <input
-                type="text"
-                value={messageContent}
-                onChange={handleInputChange}
-                placeholder="Type your message..."
-                className="flex-1 p-3 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-gray-50"
-                disabled={!currentRoom}
-              />
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleFileChange}
-                className="hidden"
-                disabled={!currentRoom || isUploading}
-              />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current.click()}
-                className="text-gray-400 hover:text-gray-600 p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={!currentRoom || isUploading}
-                aria-label="Upload file"
-              >
-                <Paperclip size={20} />
-              </button>
-              <button
-                type="button"
-                onClick={isRecording ? stopRecording : startRecording}
-                className={`text-gray-400 hover:text-gray-600 p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed ${
-                  isRecording ? "text-red-500 hover:text-red-600" : ""
-                }`}
-                disabled={!currentRoom || isUploading}
-                aria-label={isRecording ? "Stop recording" : "Start recording"}
-              >
-                {isRecording ? <StopCircle size={20} /> : <Mic size={20} />}
-              </button>
-              <button
-                type="submit"
-                className="bg-blue-600 text-white px-6 py-3 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
-                disabled={
-                  !currentRoom ||
-                  (!messageContent.trim() && !selectedFile && !recordedAudio) ||
-                  isUploading
-                }
-              >
-                {isUploading ? (
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                ) : (
-                  <span>Send</span>
-                )}
-              </button>
-            </div>
-            {selectedFile && (
-              <div className="mt-2 text-sm text-gray-600 flex items-center">
-                <span>Selected File: {selectedFile.name}</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedFile(null);
-                    fileInputRef.current.value = "";
+
+            <form onSubmit={handleUnifiedSend} className="flex items-end space-x-3">
+              <div className="flex-1 relative">
+                <textarea
+                  value={messageContent}
+                  onChange={handleInputChange}
+                  placeholder={
+                    selectedFile || recordedAudio ? "Add a message (optional)..." : "Type your message..."
+                  }
+                  className="w-full p-3 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                  rows="1"
+                  style={{
+                    minHeight: "44px",
+                    maxHeight: "120px",
+                    height: "auto",
                   }}
-                  className="ml-2 text-red-500 hover:text-red-700"
-                  aria-label="Cancel file selection"
-                >
-                  <X size={16} />
-                </button>
+                  onInput={(e) => {
+                    e.target.style.height = "auto";
+                    e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
+                  }}
+                />
               </div>
-            )}
-            {recordedAudio && (
-              <div className="mt-2 text-sm text-gray-600 flex items-center">
-                <span>Recorded: {recordedAudio.name}</span>
+
+              <div className="flex items-center space-x-2">
+                {/* File Upload */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                    title="Attach file"
+                  >
+                    <Paperclip size={20} />
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    onChange={handleFileChange}
+                    className="hidden"
+                    accept="*/*"
+                  />
+                </div>
+
+                {/* Voice Recording */}
                 <button
                   type="button"
-                  onClick={() => setRecordedAudio(null)}
-                  className="ml-2 text-red-500 hover:text-red-700"
-                  aria-label="Cancel voice recording"
+                  onClick={isRecording ? stopRecording : startRecording}
+                  className={`p-2 rounded-lg transition-colors ${isRecording
+                    ? "text-red-600 bg-red-50 hover:bg-red-100"
+                    : "text-gray-500 hover:text-red-600 hover:bg-red-50"
+                    }`}
+                  title={isRecording ? "Stop recording" : "Start voice recording"}
                 >
-                  <X size={16} />
+                  {isRecording ? (
+                    <StopCircle size={20} className="animate-pulse" />
+                  ) : (
+                    <Mic size={20} />
+                  )}
+                </button>
+
+                {/* Send Button */}
+                <button
+                  type="submit"
+                  disabled={isUploading || (!messageContent.trim() && !selectedFile && !recordedAudio)}
+                  className="bg-blue-600 text-white p-2 rounded-lg hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed transition-colors flex items-center justify-center min-w-[44px]"
+                  title="Send message"
+                >
+                  {isUploading ? (
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                  ) : (
+                    <Send size={20} />
+                  )}
                 </button>
               </div>
-            )}
-            {isUploading && (
-              <div className="mt-2">
-                <progress
-                  value={uploadProgress}
-                  max="100"
-                  className="w-full h-2 rounded bg-gray-200"
-                />
-                <span className="text-xs text-gray-600">
-                  {uploadProgress}% (Uploading{" "}
-                  {recordedAudio ? "Voice" : selectedFile ? "File" : "Content"})
-                </span>
-              </div>
-            )}
-            {downloadProgress > 0 && (
-              <div className="mt-2">
-                <progress
-                  value={downloadProgress}
-                  max="100"
-                  className="w-full h-2 rounded bg-gray-200"
-                />
-                <span className="text-xs text-gray-600">
-                  Downloading {downloadProgress}% (
-                  {downloadingVoiceId ? "Voice" : "File"})
-                </span>
-              </div>
-            )}
-          </form>
-        </div>
-      )}
+            </form>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

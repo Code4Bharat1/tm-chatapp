@@ -5,9 +5,11 @@ import io from "socket.io-client";
 import Cookies from "js-cookie";
 import axios from "axios";
 import jwt from "jsonwebtoken";
-import { throttle } from 'lodash'; // Use lodash for throttling
+
+
 // Initialize Socket.IO client only once
 let socket = null;
+const BASE_URL = process.env.NEXT_PUBLIC_CHATAPP_BACKEND; 
 
 export const useMessageStore = create((set, get) => ({
   messages: [],
@@ -26,6 +28,15 @@ export const useMessageStore = create((set, get) => ({
   downloadProgress: 0,
   downloadError: null,
 
+  token: null,
+  loadToken: () => {
+    if (typeof window !== "undefined") {
+      const token = localStorage.getItem("clientToken");
+      // console.log(token);
+      set({ token });
+    }
+  },
+
   sendMessage: (messageContent) => {
     if (!messageContent.trim()) {
       set({ error: "Message content cannot be empty" });
@@ -37,9 +48,9 @@ export const useMessageStore = create((set, get) => ({
       return;
     }
     if (socket && socket.connected) {
-      console.log(
-        `📤 [Sending sendMessage] content="${messageContent}" to room=${currentRoom}`
-      );
+      // console.log(
+      //   `📤 [Sending sendMessage] content="${messageContent}" to room=${currentRoom}`
+      // );
       socket.emit("sendMessage", messageContent, currentRoom);
     } else {
       set({ error: "Socket not connected" });
@@ -61,9 +72,9 @@ export const useMessageStore = create((set, get) => ({
       return;
     }
     if (socket && socket.connected) {
-      console.log(
-        `📤 [Sending editMessage] messageId=${messageId}, newMessage="${newMessage}" to room=${currentRoom}`
-      );
+      // console.log(
+      //   `📤 [Sending editMessage] messageId=${messageId}, newMessage="${newMessage}" to room=${currentRoom}`
+      // );
       socket.emit("editMessage", { messageId, newMessage, currentRoom });
     } else {
       set({ error: "Socket not connected" });
@@ -81,45 +92,39 @@ export const useMessageStore = create((set, get) => ({
       return;
     }
     if (socket && socket.connected) {
-      console.log(
-        `📤 [Sending deleteMessage] messageId=${messageId} to room=${currentRoom}`
-      );
+      // console.log(
+      //   `📤 [Sending deleteMessage] messageId=${messageId} to room=${currentRoom}`
+      // );
       socket.emit("deleteMessage", messageId, currentRoom);
     } else {
       set({ error: "Socket not connected" });
     }
   },
 
-  setTyping: throttle((isTyping) => {
-    const { currentRoom, user } = get();
+  setTyping: (isTyping) => {
+    const { currentRoom } = get();
     if (!currentRoom) {
       set({ error: "No room selected. Please join a room." });
       return;
     }
-    if (!user || !user.userId) {
-      set({ error: "User not authenticated." });
-      return;
-    }
     if (socket && socket.connected) {
-      console.log(
-        `📤 [Sending ${isTyping ? "typing" : "stopTyping"}] userId=${
-          user.userId
-        }, room=${currentRoom}`
-      );
-      socket.emit(isTyping ? "typing" : "stopTyping", {
-        roomId: currentRoom,
-        userId: user.userId,
-      });
-    } else {
-      set({ error: "Socket not connected." });
+      // console.log(
+      //   `📤 [Sending ${isTyping ? "typing" : "stopTyping"
+      //   }] to room=${currentRoom}`
+      // );
+      socket.emit(isTyping ? "typing" : "stopTyping", currentRoom);
     }
-  }, 500),
+  },
+
   fetchUser: async () => {
     try {
-      console.log("Fetching user from API...");
-      const response = await fetch("http://localhost:8080/api/user", {
+      // console.log("Fetching user from API...");
+      // console.log("Current token:", get().token);
+      const response = await fetch(`${BASE_URL}/user`, {
         method: "GET",
-        credentials: "include",
+        headers: {
+          Authorization: `Bearer ${get().token}`,
+        },
       });
 
       if (!response.ok) {
@@ -132,8 +137,8 @@ export const useMessageStore = create((set, get) => ({
       }
 
       const data = await response.json();
-      console.log("User from API:", data);
-      console.log("Company Name:", data.companyName || "N/A"); // Added console log for companyName
+      // console.log("User from API:", data);
+      // console.log("Company Name:", data.companyName || "N/A"); // Added console log for companyName
       if (data.userId) {
         set({ user: data, error: null });
       } else {
@@ -147,16 +152,17 @@ export const useMessageStore = create((set, get) => ({
 
   fetchCompanyUsers: async () => {
     try {
-      console.log("Fetching company users from API...");
-      const apiBaseUrl = "http://localhost:8080/api";
-      const response = await fetch(`${apiBaseUrl}/companyUsers`, {
+      // console.log("Fetching company users from API...");
+      const response = await fetch(`${BASE_URL}/companyUsers`, {
         method: "GET",
-        credentials: "include",
+        headers: {
+          Authorization: `Bearer ${get().token}`,
+        },
       });
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        console.log("Error response from server:", errorData);
+        // console.log("Error response from server:", errorData);
         let errorMessage = errorData.message || "Unknown error";
 
         if (response.status === 401) {
@@ -175,7 +181,7 @@ export const useMessageStore = create((set, get) => ({
 
       const { success, data } = await response.json();
       if (success && Array.isArray(data)) {
-        console.log("Company users from API:", data);
+        // console.log("Company users from API:", data);
         set({
           companyUsers: data.map((user) => ({
             userId: String(user.userId),
@@ -200,7 +206,7 @@ export const useMessageStore = create((set, get) => ({
       const selected = state.companyUsers.filter((u) =>
         userIds.includes(String(u.userId))
       );
-      console.log(`Selected users updated:`, selected);
+      // console.log(`Selected users updated:`, selected);
       return { selectedUsers: selected };
     });
   },
@@ -214,7 +220,7 @@ export const useMessageStore = create((set, get) => ({
         const updated = state.selectedUsers.filter(
           (u) => String(u.userId) !== String(userId)
         );
-        console.log(`User ${userId} deselected:`, updated);
+        // console.log(`User ${userId} deselected:`, updated);
         return { selectedUsers: updated };
       } else {
         const user = state.companyUsers.find(
@@ -222,7 +228,7 @@ export const useMessageStore = create((set, get) => ({
         );
         if (user) {
           const updated = [...state.selectedUsers, user];
-          console.log(`User ${userId} selected:`, updated);
+          // console.log(`User ${userId} selected:`, updated);
           return { selectedUsers: updated };
         }
         return state;
@@ -232,7 +238,7 @@ export const useMessageStore = create((set, get) => ({
 
   clearSelectedUsers: () => {
     set({ selectedUsers: [] });
-    console.log("Selected users cleared");
+    // console.log("Selected users cleared");
   },
 
   createRoom: (roomName, userIds) => {
@@ -245,7 +251,7 @@ export const useMessageStore = create((set, get) => ({
       return;
     }
     if (socket && socket.connected) {
-      console.log(`📤 [Creating room] name="${roomName}", users=${userIds}`);
+      // console.log(`📤 [Creating room] name="${roomName}", users=${userIds}`);
       socket.emit("createRoom", { roomName, userIds });
     } else {
       set({ error: "Socket not connected" });
@@ -254,31 +260,29 @@ export const useMessageStore = create((set, get) => ({
   joinRoom: async (roomId) => {
     try {
       set({ error: null });
-      console.log(`📩 [Joining Room]: ${roomId}`);
+      // console.log(`📩 [Joining Room]: ${roomId}`);
 
       // Fetch messages, files, and voices
       const [messagesResponse, filesResponse, voicesResponse] =
         await Promise.all([
           axios.get(
-            `http://localhost:8080/api/messages?roomId=${encodeURIComponent(
-              roomId
-            )}`,
+            `${BASE_URL}/messages?roomId=${encodeURIComponent(roomId)}`,
             {
-              withCredentials: true,
+              headers: {
+                Authorization: `Bearer ${get().token}`,
+              },
             }
           ),
-          axios.get(
-            `http://localhost:8080/api/get/file/${encodeURIComponent(roomId)}`,
-            {
-              withCredentials: true,
-            }
-          ),
-          axios.get(
-            `http://localhost:8080/api/get/voice/${encodeURIComponent(roomId)}`,
-            {
-              withCredentials: true,
-            }
-          ),
+          axios.get(`${BASE_URL}/get/file/${encodeURIComponent(roomId)}`, {
+            headers: {
+              Authorization: `Bearer ${get().token}`,
+            },
+          }),
+          axios.get(`${BASE_URL}/get/voice/${encodeURIComponent(roomId)}`, {
+            headers: {
+              Authorization: `Bearer ${get().token}`,
+            },
+          }),
         ]);
 
       // Validate responses
@@ -309,15 +313,15 @@ export const useMessageStore = create((set, get) => ({
       const fetchedFiles = filesResponse.data.data || [];
       const fetchedVoices = voicesResponse.data.data || [];
 
-      console.log(
-        `📤 [Fetched Messages]:`,
-        JSON.stringify(fetchedMessages, null, 2)
-      );
-      console.log(`📤 [Fetched Files]:`, JSON.stringify(fetchedFiles, null, 2));
-      console.log(
-        `📤 [Fetched Voices]:`,
-        JSON.stringify(fetchedVoices, null, 2)
-      );
+      // console.log(
+      //   `📤 [Fetched Messages]:`,
+      //   JSON.stringify(fetchedMessages, null, 2)
+      // );
+      // console.log(`📤 [Fetched Files]:`, JSON.stringify(fetchedFiles, null, 2));
+      // console.log(
+      //   `📤 [Fetched Voices]:`,
+      //   JSON.stringify(fetchedVoices, null, 2)
+      // );
 
       // Filter out system-generated upload messages
       const systemUploadMessages = [
@@ -384,10 +388,10 @@ export const useMessageStore = create((set, get) => ({
       }));
 
       // Log filtered messages
-      console.log(
-        `🔍 [Filtered Text Messages]:`,
-        JSON.stringify(textMessages, null, 2)
-      );
+      // console.log(
+      //   `🔍 [Filtered Text Messages]:`,
+      //   JSON.stringify(textMessages, null, 2)
+      // );
 
       // Update state
       set((state) => {
@@ -398,9 +402,9 @@ export const useMessageStore = create((set, get) => ({
         const newFiles = files.filter((f) => !existingMessageIds.has(f._id));
         const newVoices = voices.filter((v) => !existingMessageIds.has(v._id));
 
-        console.log(
-          `🔍 [New Messages]: Text=${newMessages.length}, Files=${newFiles.length}, Voices=${newVoices.length}`
-        );
+        // console.log(
+        //   `🔍 [New Messages]: Text=${newMessages.length}, Files=${newFiles.length}, Voices=${newVoices.length}`
+        // );
 
         return {
           messages: [
@@ -415,9 +419,9 @@ export const useMessageStore = create((set, get) => ({
         };
       });
 
-      console.log(
-        `✅ [Joined Room]: ${roomId}, Messages: ${textMessages.length}, Files: ${files.length}, Voices: ${voices.length}`
-      );
+      // console.log(
+      //   `✅ [Joined Room]: ${roomId}, Messages: ${textMessages.length}, Files: ${files.length}, Voices: ${voices.length}`
+      // );
 
       // Join room via Socket.IO
       if (socket && socket.connected) {
@@ -462,7 +466,7 @@ export const useMessageStore = create((set, get) => ({
       link.remove();
       window.URL.revokeObjectURL(url);
 
-      console.log(`📥 [Downloaded voice] ${voiceId}`);
+      // console.log(`📥 [Downloaded voice] ${voiceId}`);
       set({ downloadProgress: 100 });
     } catch (error) {
       console.error("❌ [Download Voice Error]:", error.message);
@@ -480,7 +484,7 @@ export const useMessageStore = create((set, get) => ({
       return;
     }
     if (socket && socket.connected) {
-      console.log(`📤 [Leaving room] roomId=${roomId}`);
+      // console.log(`📤 [Leaving room] roomId=${roomId}`);
       socket.emit("leaveRoom", roomId);
     } else {
       set({ error: "Socket not connected" });
@@ -490,20 +494,19 @@ export const useMessageStore = create((set, get) => ({
   deleteRoom: async (roomId) => {
     if (!roomId) {
       set({ error: "Room ID is required" });
-      console.log("❌ deleteRoom: Room ID missing");
+      // console.log("❌ deleteRoom: Room ID missing");
       return;
     }
     try {
-      console.log(`📤 [Deleting room] roomId=${roomId}`);
+      // console.log(`📤 [Deleting room] roomId=${roomId}`);
 
       // Make DELETE request to /api/delete/room/:roomId with cookies
-      const response = await axios.delete(
-        `http://localhost:8080/api/delete/room/${roomId}`,
-        {
-          withCredentials: true, // Send cookies for authentication
-        }
-      );
-      console.log(`✅ Room deleted:`, response.data);
+      const response = await axios.delete(`${BASE_URL}/delete/room/${roomId}`, {
+        headers: {
+          Authorization: `Bearer ${get().token}`,
+        }, // Send cookies for authentication
+      });
+      // console.log(`✅ Room deleted:`, response.data);
 
       // Update local state
       set((state) => ({
@@ -535,7 +538,7 @@ export const useMessageStore = create((set, get) => ({
     }
   },
 
-  uploadFile: async (file, onProgress = () => {}) => {
+  uploadFile: async (file, onProgress = () => { }) => {
     if (!file) {
       set({ error: "No file selected for upload" });
       return;
@@ -546,31 +549,29 @@ export const useMessageStore = create((set, get) => ({
       return;
     }
     try {
-      console.log(
-        `📤 [Uploading file] originalName=${file.name} to room=${currentRoom}`
-      );
+      // console.log(
+      //   `📤 [Uploading file] originalName=${file.name} to room=${currentRoom}`
+      // );
       const formData = new FormData();
       formData.append("file", file);
       formData.append("roomId", currentRoom);
-      console.log("📤 [FormData contents]:", [...formData.entries()]);
+      // console.log("📤 [FormData contents]:", [...formData.entries()]);
 
-      const response = await axios.post(
-        "http://localhost:8080/api/upload",
-        formData,
-        {
-          withCredentials: true,
-          onUploadProgress: (progressEvent) => {
-            const percentCompleted = Math.round(
-              (progressEvent.loaded * 100) / progressEvent.total
-            );
-            set({ uploadProgress: percentCompleted });
-            onProgress(percentCompleted);
-            console.log(`Upload Progress: ${percentCompleted}%`);
-          },
-        }
-      );
+      const response = await axios.post(`${BASE_URL}/upload`, formData, {
+        headers: {
+          Authorization: `Bearer ${get().token}`,
+        },
+        onUploadProgress: (progressEvent) => {
+          const percentCompleted = Math.round(
+            (progressEvent.loaded * 100) / progressEvent.total
+          );
+          set({ uploadProgress: percentCompleted });
+          onProgress(percentCompleted);
+          // console.log(`Upload Progress: ${percentCompleted}%`);
+        },
+      });
 
-      console.log(`✅ File uploaded:`, response.data);
+      // console.log(`✅ File uploaded:`, response.data);
       set({ error: null, uploadProgress: 0 });
     } catch (error) {
       console.error(
@@ -603,7 +604,7 @@ export const useMessageStore = create((set, get) => ({
       return;
     }
 
-    console.log("File metadata:", file);
+    // console.log("File metadata:", file);
 
     if (!file.file?.filename) {
       console.error("No filename in file metadata:", file);
@@ -612,23 +613,23 @@ export const useMessageStore = create((set, get) => ({
     }
 
     try {
-      console.log(
-        `📥 [Downloading file] fileId=${fileId}, filename=${file.file.filename}`
-      );
+      // console.log(
+      //   `📥 [Downloading file] fileId=${fileId}, filename=${file.file.filename}`
+      // );
 
       const response = await axios.get(
-        `http://localhost:8080/api/download/${encodeURIComponent(
-          file.file.filename
-        )}`,
+        `${BASE_URL}/download/${encodeURIComponent(file.file.filename)}`,
         {
-          withCredentials: true,
+          headers: {
+            Authorization: `Bearer ${get().token}`,
+          },
           responseType: "blob",
           onDownloadProgress: (progressEvent) => {
             const percentCompleted = Math.round(
               (progressEvent.loaded * 100) / progressEvent.total
             );
             set({ downloadProgress: percentCompleted });
-            console.log(`Download Progress: ${percentCompleted}%`);
+            // console.log(`Download Progress: ${percentCompleted}%`);
           },
         }
       );
@@ -645,7 +646,7 @@ export const useMessageStore = create((set, get) => ({
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
 
-      console.log(`✅ File downloaded: ${file.file.originalName}`);
+      // console.log(`✅ File downloaded: ${file.file.originalName}`);
       set({ downloadProgress: 0, downloadError: null });
     } catch (error) {
       console.error(
@@ -697,19 +698,19 @@ export const useMessageStore = create((set, get) => ({
     }));
 
     try {
-      console.log(
-        `📤 [Deleting file] fileId=${fileId}, filename=${file.file.filename}`
-      );
+      // console.log(
+      //   `📤 [Deleting file] fileId=${fileId}, filename=${file.file.filename}`
+      // );
       const response = await axios.delete(
-        `http://localhost:8080/api/delete/file/${encodeURIComponent(
-          file.file.filename
-        )}`,
+        `${BASE_URL}/delete/file/${encodeURIComponent(file.file.filename)}`,
         {
-          withCredentials: true,
+          headers: {
+            Authorization: `Bearer ${get().token}`,
+          },
         }
       );
 
-      console.log(`✅ File deleted:`, response.data);
+      // console.log(`✅ File deleted:`, response.data);
       set({ error: null });
     } catch (error) {
       console.error(
@@ -728,7 +729,7 @@ export const useMessageStore = create((set, get) => ({
     }
   },
 
-  uploadVoice: async (voice, onProgress = () => {}) => {
+  uploadVoice: async (voice, onProgress = () => { }) => {
     if (!voice) {
       set({ error: "No voice file selected for upload" });
       return;
@@ -739,31 +740,29 @@ export const useMessageStore = create((set, get) => ({
       return;
     }
     try {
-      console.log(
-        `📤 [Uploading voice] originalName=${voice.name} to room=${currentRoom}`
-      );
+      // console.log(
+      //   `📤 [Uploading voice] originalName=${voice.name} to room=${currentRoom}`
+      // );
       const formData = new FormData();
       formData.append("voice", voice);
       formData.append("roomId", currentRoom);
-      console.log("📤 [FormData contents]:", [...formData.entries()]);
+      // console.log("📤 [FormData contents]:", [...formData.entries()]);
 
-      const response = await axios.post(
-        "http://localhost:8080/api/upload/voice",
-        formData,
-        {
-          withCredentials: true,
-          onUploadProgress: (progressEvent) => {
-            const percentCompleted = Math.round(
-              (progressEvent.loaded * 100) / progressEvent.total
-            );
-            set({ uploadProgress: percentCompleted });
-            onProgress(percentCompleted);
-            console.log(`Upload Progress: ${percentCompleted}%`);
-          },
-        }
-      );
+      const response = await axios.post(`${BASE_URL}/upload/voice`, formData, {
+        headers: {
+          Authorization: `Bearer ${get().token}`,
+        },
+        onUploadProgress: (progressEvent) => {
+          const percentCompleted = Math.round(
+            (progressEvent.loaded * 100) / progressEvent.total
+          );
+          set({ uploadProgress: percentCompleted });
+          onProgress(percentCompleted);
+          // console.log(`Upload Progress: ${percentCompleted}%`);
+        },
+      });
 
-      console.log(`✅ Voice uploaded:`, response.data);
+      // console.log(`✅ Voice uploaded:`, response.data);
       set({ error: null, uploadProgress: 0 });
     } catch (error) {
       console.error(
@@ -796,7 +795,7 @@ export const useMessageStore = create((set, get) => ({
       return;
     }
 
-    console.log("Voice metadata:", voice);
+    // console.log("Voice metadata:", voice);
 
     if (!voice.voice?.filename) {
       console.error("No filename in voice metadata:", voice);
@@ -805,23 +804,25 @@ export const useMessageStore = create((set, get) => ({
     }
 
     try {
-      console.log(
-        `📥 [Downloading voice] voiceId=${voiceId}, filename=${voice.voice.filename}`
-      );
+    //  console.log (
+    //     `📥 [Downloading voice] voiceId=${voiceId}, filename=${voice.voice.filename}`
+    //   );
 
       const response = await axios.get(
-        `http://localhost:8080/api/download/voice/${encodeURIComponent(
+        `${BASE_URL}/download/voice/${encodeURIComponent(
           voice.voice.filename
         )}`,
         {
-          withCredentials: true,
+          headers: {
+            Authorization: `Bearer ${get().token}`,
+          },
           responseType: "blob",
           onDownloadProgress: (progressEvent) => {
             const percentCompleted = Math.round(
               (progressEvent.loaded * 100) / progressEvent.total
             );
             set({ downloadProgress: percentCompleted });
-            console.log(`Download Progress: ${percentCompleted}%`);
+            // console.log(`Download Progress: ${percentCompleted}%`);
           },
         }
       );
@@ -838,7 +839,7 @@ export const useMessageStore = create((set, get) => ({
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
 
-      console.log(`✅ Voice downloaded: ${voice.voice.originalName}`);
+      // console.log(`✅ Voice downloaded: ${voice.voice.originalName}`);
       set({ downloadProgress: 0, downloadError: null });
     } catch (error) {
       console.error(
@@ -890,19 +891,19 @@ export const useMessageStore = create((set, get) => ({
     }));
 
     try {
-      console.log(
-        `📤 [Deleting voice] voiceId=${voiceId}, filename=${voice.voice.filename}`
-      );
+      // console.log(
+      //   `📤 [Deleting voice] voiceId=${voiceId}, filename=${voice.voice.filename}`
+      // );
       const response = await axios.delete(
-        `http://localhost:8080/api/delete/voice/${encodeURIComponent(
-          voice.voice.filename
-        )}`,
+        `${BASE_URL}/delete/voice/${encodeURIComponent(voice.voice.filename)}`,
         {
-          withCredentials: true,
+          headers: {
+            Authorization: `Bearer ${get().token}`,
+          },
         }
       );
 
-      console.log(`✅ Voice deleted:`, response.data);
+      // console.log(`✅ Voice deleted:`, response.data);
       set({ error: null });
     } catch (error) {
       console.error(
@@ -923,28 +924,18 @@ export const useMessageStore = create((set, get) => ({
 
   initializeSocket: () => {
     if (!socket) {
-      console.log("Initializing Socket.IO client...");
-      socket = io("http://localhost:8080", {
-        withCredentials: true,
+      const token = get().token;
+      // console.log("Initializing Socket.IO client...");
+      socket = io(process.env.NEXT_PUBLIC_SOCKT_CHATAPP_BACKEND, { 
+        extraHeaders: {
+          Authorization: `Bearer ${token}`,
+        },
       });
 
       socket.on("connect", () => {
-        console.log("✅ Socket connected");
-        const token = Cookies.get("token");
-        if (token) {
-          try {
-            const user = jwt.decode(token);
-            if (user?.companyId) {
-              set({
-                groupName: `Company ${user.companyId} Chat`,
-                currentRoom: `company_${user.companyId}`,
-              });
-            }
-          } catch (error) {
-            console.error("Error decoding token:", error.message);
-            set({ error: "Invalid token" });
-          }
-        }
+        // console.log("✅ Socket connected");
+        // Remove default room setting
+        set({ groupName: "Group Chat", currentRoom: null });
       });
 
       socket.on("connect_error", (err) => {
@@ -953,7 +944,7 @@ export const useMessageStore = create((set, get) => ({
       });
 
       socket.on("newMessage", (data) => {
-        console.log("📥 [newMessage Received]:", JSON.stringify(data, null, 2));
+        // console.log("📥 [newMessage Received]:", data);
         if (data && data._id && data.roomId) {
           const { currentRoom } = get();
           if (String(data.roomId) === String(currentRoom)) {
@@ -962,9 +953,9 @@ export const useMessageStore = create((set, get) => ({
               data.message === "Voice message uploaded" ||
               data.message === "File uploaded";
             if (isUploadMessage) {
-              console.log(
-                `Skipping upload notification message: "${data.message}"`
-              );
+              // console.log(
+              //   `Skipping upload notification message: "${data.message}"`
+              // );
               return;
             }
             set((state) => {
@@ -973,20 +964,9 @@ export const useMessageStore = create((set, get) => ({
                   (msg) => String(msg._id) === String(data._id)
                 )
               ) {
-                console.log("Message already exists, skipping:", data._id);
+                // console.log("Message already exists, skipping:", data._id);
                 return state;
               }
-              // Warn if unexpected fields like 'users' are present
-              if (data.users || data.onlineUsers) {
-                console.warn("Unexpected users data in newMessage:", {
-                  users: data.users,
-                  onlineUsers: data.onlineUsers,
-                });
-              }
-              console.log(
-                "🔍 [newMessage] Current onlineUsers:",
-                state.onlineUsers
-              ); // Debug
               return {
                 messages: [
                   ...state.messages,
@@ -998,16 +978,15 @@ export const useMessageStore = create((set, get) => ({
                     roomId: String(data.roomId),
                     timestamp: data.timestamp || new Date().toISOString(),
                     updatedAt: data.updatedAt,
-                    companyName: data.companyName || "Unknown Company",
                   },
                 ],
                 error: null,
               };
             });
           } else {
-            console.log(
-              `Message for different room: ${data.roomId}, currentRoom: ${currentRoom}`
-            );
+            // console.log(
+            //   `Message for different room: ${data.roomId}, currentRoom: ${currentRoom}`
+            // );
           }
         } else {
           console.error("Invalid newMessage data: missing _id or roomId", data);
@@ -1016,7 +995,7 @@ export const useMessageStore = create((set, get) => ({
       });
 
       socket.on("messageUpdated", (updatedMessage) => {
-        console.log("📥 [messageUpdated Received]:", updatedMessage);
+        // console.log("📥 [messageUpdated Received]:", updatedMessage);
         if (updatedMessage && updatedMessage._id && updatedMessage.roomId) {
           const { currentRoom } = get();
           if (String(updatedMessage.roomId) === String(currentRoom)) {
@@ -1024,15 +1003,15 @@ export const useMessageStore = create((set, get) => ({
               messages: state.messages.map((msg) =>
                 String(msg._id) === String(updatedMessage._id)
                   ? {
-                      ...updatedMessage,
-                      _id: String(updatedMessage._id),
-                      userId: updatedMessage.userId
-                        ? String(updatedMessage.userId)
-                        : "unknown",
-                      roomId: String(updatedMessage.roomId),
-                      timestamp:
-                        updatedMessage.timestamp || new Date().toISOString(),
-                    }
+                    ...updatedMessage,
+                    _id: String(updatedMessage._id),
+                    userId: updatedMessage.userId
+                      ? String(updatedMessage.userId)
+                      : "unknown",
+                    roomId: String(updatedMessage.roomId),
+                    timestamp:
+                      updatedMessage.timestamp || new Date().toISOString(),
+                  }
                   : msg
               ),
               error: null,
@@ -1051,7 +1030,7 @@ export const useMessageStore = create((set, get) => ({
       });
 
       socket.on("messageDeleted", ({ messageId }) => {
-        console.log("📥 [messageDeleted Received]:", messageId);
+        // console.log("📥 [messageDeleted Received]:", messageId);
         if (messageId) {
           set((state) => ({
             messages: state.messages.filter(
@@ -1066,40 +1045,20 @@ export const useMessageStore = create((set, get) => ({
       });
 
       socket.on("userTyping", ({ userId, username, roomId }) => {
-        console.log(
-          `📥 [userTyping Received]: ${username} (${userId}) in room=${roomId}`
-        );
+        // console.log(
+        //   `📥 [userTyping Received]: ${username} (${userId}) in room=${roomId}`
+        // );
         const { currentRoom } = get();
         if (String(roomId) === String(currentRoom) && userId && username) {
-          const token = Cookies.get("token");
-          let isClient = false;
-          if (token) {
-            try {
-              const user = jwt.decode(token);
-              isClient = user?.position?.toLowerCase() === "client";
-            } catch (error) {
-              console.error(
-                "Error decoding token in userTyping:",
-                error.message
-              );
-            }
-          }
-          if (isClient) {
-            // Clients only update typing, not onlineUsers
-            set((state) => ({
-              isTyping: { ...state.isTyping, [String(userId)]: username },
-            }));
-          } else {
-            set((state) => ({
-              isTyping: { ...state.isTyping, [String(userId)]: username },
-              onlineUsers: [
-                ...state.onlineUsers.filter(
-                  (u) => String(u.userId) !== String(userId)
-                ),
-                { userId: String(userId), username },
-              ],
-            }));
-          }
+          set((state) => ({
+            isTyping: { ...state.isTyping, [String(userId)]: username },
+            onlineUsers: [
+              ...state.onlineUsers.filter(
+                (u) => String(u.userId) !== String(userId)
+              ),
+              { userId: String(userId), username },
+            ],
+          }));
         } else {
           console.warn("Invalid userTyping data or wrong room", {
             userId,
@@ -1110,9 +1069,9 @@ export const useMessageStore = create((set, get) => ({
       });
 
       socket.on("userStoppedTyping", ({ userId, roomId }) => {
-        console.log(
-          `📥 [userStoppedTyping Received]: userId=${userId} in room=${roomId}`
-        );
+        // console.log(
+        //   `📥 [userStoppedTyping Received]: userId=${userId} in room=${roomId}`
+        // );
         const { currentRoom } = get();
         if (String(roomId) === String(currentRoom) && userId) {
           set((state) => {
@@ -1129,39 +1088,15 @@ export const useMessageStore = create((set, get) => ({
       });
 
       socket.on("joinConfirmation", (data) => {
-        console.log(
-          `✅ [joinConfirmation Received]:`,
-          JSON.stringify(data, null, 2)
-        );
-        if (data.room) {
-          const token = Cookies.get("token");
-          let isClient = false;
-          if (token) {
-            try {
-              const user = jwt.decode(token);
-              isClient = user?.position?.toLowerCase() === "client";
-            } catch (error) {
-              console.error(
-                "Error decoding token in joinConfirmation:",
-                error.message
-              );
-            }
-          }
-          if (isClient && data.users?.length > 0) {
-            console.warn(
-              "Unexpected users data in joinConfirmation for client:",
-              data.users
-            );
-          }
+        // console.log(`✅ Joined room: ${data.room}`);
+        if (data.room && data.users) {
           set({
             currentRoom: String(data.room),
             groupName: data.roomName || `Room ${data.room}`,
-            onlineUsers: isClient
-              ? []
-              : data.users?.map((u) => ({
-                  userId: String(u.userId),
-                  username: u.username || "Anonymous",
-                })) || [],
+            onlineUsers: data.users.map((u) => ({
+              userId: String(u.userId),
+              username: u.username || "Anonymous",
+            })),
             error: null,
           });
         } else {
@@ -1169,96 +1104,60 @@ export const useMessageStore = create((set, get) => ({
           set({ error: "Received invalid join confirmation data" });
         }
       });
-
       socket.on("roomCreated", (room) => {
-        console.log(
-          "📥 [roomCreated Received]:",
-          JSON.stringify(room, null, 2)
-        );
+        // console.log(
+        //   "📥 [roomCreated Received]:",
+        //   JSON.stringify(room, null, 2)
+        // );
         if (room && room.roomId) {
-          const token = Cookies.get("token");
-          let isClient = false;
-          if (token) {
-            try {
-              const user = jwt.decode(token);
-              isClient = user?.position?.toLowerCase() === "client";
-            } catch (error) {
-              console.error(
-                "Error decoding token in roomCreated:",
-                error.message
-              );
-            }
-          }
-          if (isClient && room.users?.length > 0) {
-            console.warn(
-              "Unexpected users data in roomCreated for client:",
-              room.users
-            );
-          }
           set((state) => {
             const exists = state.rooms.some(
               (r) => String(r.roomId) === String(room.roomId)
             );
-            console.log(
-              `🔍 [roomCreated] Room exists: ${exists}, rooms:`,
-              state.rooms
-            );
+            // console.log(
+            //   `🔍 [roomCreated] Room exists: ${exists}, rooms:`,
+            //   state.rooms
+            // );
             if (exists) {
               return state;
             }
             const newRoom = {
               roomId: String(room.roomId),
               roomName: room.roomName,
-              users: isClient ? [] : room.users?.map((u) => String(u)) || [],
+              users: room.users.map((u) => String(u)),
               creator: room.creator ? String(room.creator) : null,
             };
-            console.log(`🔍 [roomCreated] Adding room:`, newRoom);
+            // console.log(`🔍 [roomCreated] Adding room:`, newRoom);
             return {
               rooms: [...state.rooms, newRoom],
               selectedUsers: [],
               error: null,
             };
           });
-          console.log(`✅ [roomCreated] Updated rooms:`, get().rooms);
+          // console.log(`✅ [roomCreated] Updated rooms:`, get().rooms);
         } else {
           console.error("Invalid roomCreated data:", room);
           set({ error: "Received invalid room data" });
         }
       });
-
       socket.on("userJoined", ({ user, roomId }) => {
-        console.log(
-          `📥 [userJoined Received]: userId=${user.userId}, username=${user.username}, roomId=${roomId}`
-        );
+        // console.log(
+        //   `📥 [userJoined Received]: userId=${user.userId}, username=${user.username}, roomId=${roomId}`
+        // );
         if (String(roomId) === String(get().currentRoom) && user?.userId) {
-          const token = Cookies.get("token");
-          let isClient = false;
-          if (token) {
-            try {
-              const userData = jwt.decode(token);
-              isClient = userData?.position?.toLowerCase() === "client";
-            } catch (error) {
-              console.error(
-                "Error decoding token in userJoined:",
-                error.message
-              );
-            }
-          }
-          if (!isClient) {
-            set((state) => {
-              // Remove existing user with same userId to avoid duplicates
-              const updatedUsers = state.onlineUsers.filter(
-                (u) => String(u.userId) !== String(user.userId)
-              );
-              return {
-                onlineUsers: [...updatedUsers, user],
-              };
-            });
-            console.log(
-              `🔍 [userJoined] Updated onlineUsers:`,
-              get().onlineUsers
+          set((state) => {
+            // Remove existing user with same userId to avoid duplicates
+            const updatedUsers = state.onlineUsers.filter(
+              (u) => String(u.userId) !== String(user.userId)
             );
-          }
+            return {
+              onlineUsers: [...updatedUsers, user],
+            };
+          });
+          // console.log(
+          //   `🔍 [userJoined] Updated onlineUsers:`,
+          //   get().onlineUsers
+          // );
         } else {
           console.warn("Invalid userJoined data or room mismatch:", {
             user,
@@ -1267,49 +1166,8 @@ export const useMessageStore = create((set, get) => ({
         }
       });
 
-      socket.on("onlineUsersUpdate", (data) => {
-        console.log(
-          "📥 [onlineUsersUpdate Received]:",
-          JSON.stringify(data, null, 2)
-        );
-        const token = Cookies.get("token");
-        let isClient = false;
-        if (token) {
-          try {
-            const user = jwt.decode(token);
-            isClient = user?.position?.toLowerCase() === "client";
-          } catch (error) {
-            console.error(
-              "Error decoding token in onlineUsersUpdate:",
-              error.message
-            );
-          }
-        }
-        if (isClient) {
-          if (data.userCount !== undefined) {
-            set({ userCount: data.userCount, onlineUsers: [] });
-          } else if (data.users) {
-            console.warn(
-              "Unexpected users data in onlineUsersUpdate for client:",
-              data.users
-            );
-          }
-        } else {
-          if (data.users) {
-            set({
-              onlineUsers: data.users.map((u) => ({
-                userId: String(u.userId),
-                username: u.username || "Anonymous",
-              })),
-            });
-          } else if (data.userCount !== undefined) {
-            set({ userCount: data.userCount });
-          }
-        }
-      });
-
       socket.on("roomLeft", ({ success, message, data }) => {
-        console.log(`📥 [roomLeft Received]:`, { success, message, data });
+        // console.log(`📥 [roomLeft Received]:`, { success, message, data });
         if (success && data && data.roomId) {
           set((state) => ({
             rooms: state.rooms.filter(
@@ -1327,20 +1185,20 @@ export const useMessageStore = create((set, get) => ({
             messages:
               state.currentRoom === data.roomId
                 ? state.messages.filter(
-                    (msg) => String(msg.roomId) !== String(data.roomId)
-                  )
+                  (msg) => String(msg.roomId) !== String(data.roomId)
+                )
                 : state.messages,
             uploadedFiles:
               state.currentRoom === data.roomId
                 ? state.uploadedFiles.filter(
-                    (file) => String(file.roomId) !== String(data.roomId)
-                  )
+                  (file) => String(file.roomId) !== String(data.roomId)
+                )
                 : state.uploadedFiles,
             uploadedVoices:
               state.currentRoom === data.roomId
                 ? state.uploadedVoices.filter(
-                    (voice) => String(voice.roomId) !== String(data.roomId)
-                  )
+                  (voice) => String(voice.roomId) !== String(data.roomId)
+                )
                 : state.uploadedVoices,
             error: null,
           }));
@@ -1351,9 +1209,9 @@ export const useMessageStore = create((set, get) => ({
       });
 
       socket.on("userLeftRoom", ({ userId, username, roomId, roomName }) => {
-        console.log(
-          `📥 [userLeftRoom Received]: ${username} (${userId}) left room=${roomId}`
-        );
+        // console.log(
+        //   `📥 [userLeftRoom Received]: ${username} (${userId}) left room=${roomId}`
+        // );
         const { currentRoom } = get();
         if (String(roomId) === String(currentRoom) && userId) {
           set((state) => ({
@@ -1397,7 +1255,7 @@ export const useMessageStore = create((set, get) => ({
       });
 
       socket.on("newFile", (fileDetails) => {
-        console.log("📥 [newFile Received]:", fileDetails);
+        // console.log("📥 [newFile Received]:", fileDetails);
         if (
           fileDetails &&
           fileDetails._id &&
@@ -1450,9 +1308,9 @@ export const useMessageStore = create((set, get) => ({
       });
 
       socket.on("fileDeleted", ({ fileId, roomId }) => {
-        console.log(
-          `📥 [fileDeleted Received]: fileId=${fileId}, roomId=${roomId}`
-        );
+        // console.log(
+        //   `📥 [fileDeleted Received]: fileId=${fileId}, roomId=${roomId}`
+        // );
         if (fileId && roomId) {
           const { currentRoom } = get();
           if (String(roomId) === String(currentRoom)) {
@@ -1463,12 +1321,12 @@ export const useMessageStore = create((set, get) => ({
               const updatedMessages = state.messages.filter(
                 (msg) => String(msg?.file?.filename) !== String(fileId)
               );
-              console.log(
-                `🔍 [fileDeleted] Before: files=${state.uploadedFiles.length}, messages=${state.messages.length}`
-              );
-              console.log(
-                `🔍 [fileDeleted] After: files=${updatedFiles.length}, messages=${updatedMessages.length}`
-              );
+              // console.log(
+              //   `🔍 [fileDeleted] Before: files=${state.uploadedFiles.length}, messages=${state.messages.length}`
+              // );
+              // console.log(
+              //   `🔍 [fileDeleted] After: files=${updatedFiles.length}, messages=${updatedMessages.length}`
+              // );
               return {
                 uploadedFiles: updatedFiles,
                 messages: updatedMessages,
@@ -1486,7 +1344,7 @@ export const useMessageStore = create((set, get) => ({
       });
 
       socket.on("messagesDeleted", ({ roomId, message, timestamp }) => {
-        console.log(`📥 [messagesDeleted Received]: roomId=${roomId}`);
+        // console.log(`📥 [messagesDeleted Received]: roomId=${roomId}`);
         if (roomId) {
           const { currentRoom } = get();
           if (String(roomId) === String(currentRoom)) {
@@ -1514,7 +1372,7 @@ export const useMessageStore = create((set, get) => ({
       });
 
       socket.on("newVoice", (voiceDetails) => {
-        console.log("📥 [newVoice Received]:", voiceDetails);
+        // console.log("📥 [newVoice Received]:", voiceDetails);
         if (
           voiceDetails &&
           voiceDetails._id &&
@@ -1569,27 +1427,26 @@ export const useMessageStore = create((set, get) => ({
       });
 
       socket.on("errorMessage", (msg) => {
-        console.log("❌ [errorMessage Received]:", msg);
+        // console.log("❌ [errorMessage Received]:", msg);
         set({ error: msg });
       });
 
       socket.on("disconnect", () => {
-        console.log("❌ Socket disconnected");
-        set({
-          onlineUsers: [],
-          isTyping: {},
-          currentRoom: null,
-          groupName: "Group Chat",
-          uploadProgress: 0,
-          downloadProgress: 0,
-          downloadError: null,
-        });
+        // console.log("❌ Socket disconnected");
+        // set({
+        //   onlineUsers: [],
+        //   isTyping: {},
+        //   currentRoom: null,
+        //   groupName: "Group Chat",
+        //   uploadProgress: 0,
+        //   downloadProgress: 0,
+        //   downloadError: null,
+        // });
       });
-
       socket.on("voiceDeleted", ({ voiceId, roomId }) => {
-        console.log(
-          `📥 [voiceDeleted Received]: voiceId=${voiceId}, roomId=${roomId}`
-        );
+        // console.log(
+        //   `📥 [voiceDeleted Received]: voiceId=${voiceId}, roomId=${roomId}`
+        // );
         if (voiceId && roomId) {
           const { currentRoom } = get();
           if (String(roomId) === String(currentRoom)) {
@@ -1600,12 +1457,12 @@ export const useMessageStore = create((set, get) => ({
               const updatedMessages = state.messages.filter(
                 (msg) => String(msg?.voice?.filename) !== String(voiceId)
               );
-              console.log(
-                `🔍 [voiceDeleted] Before: voices=${state.uploadedVoices.length}, messages=${state.messages.length}`
-              );
-              console.log(
-                `🔍 [voiceDeleted] After: voices=${updatedVoices.length}, messages=${updatedMessages.length}`
-              );
+              // console.log(
+              //   `🔍 [voiceDeleted] Before: voices=${state.uploadedVoices.length}, messages=${state.messages.length}`
+              // );
+              // console.log(
+              //   `🔍 [voiceDeleted] After: voices=${updatedVoices.length}, messages=${updatedMessages.length}`
+              // );
               return {
                 uploadedVoices: updatedVoices,
                 messages: updatedMessages,
