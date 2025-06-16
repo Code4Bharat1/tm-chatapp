@@ -18,7 +18,7 @@ import {
   Trash2,
   Users,
   X,
-  Play // Add this
+  Play, // Add this
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import FloatingButtons from "./FloatingButtons";
@@ -107,7 +107,9 @@ const GroupChatUI = () => {
   const playVoice = async (voiceId) => {
     try {
       setPlayingVoiceId(voiceId);
-      const voice = uploadedVoices.find((v) => String(v._id) === String(voiceId));
+      const voice = uploadedVoices.find(
+        (v) => String(v._id) === String(voiceId)
+      );
 
       if (!voice) {
         throw new Error("Voice message not found");
@@ -147,14 +149,19 @@ const GroupChatUI = () => {
   // Close sidebar when clicking outside on mobile
   useEffect(() => {
     const handleClickOutside = (event) => {
-      if (sidebarRef.current && !sidebarRef.current.contains(event.target) && showSidebar) {
+      if (
+        sidebarRef.current &&
+        !sidebarRef.current.contains(event.target) &&
+        showSidebar
+      ) {
         setShowSidebar(false);
       }
     };
 
     if (isMobile) {
       document.addEventListener("mousedown", handleClickOutside);
-      return () => document.removeEventListener("mousedown", handleClickOutside);
+      return () =>
+        document.removeEventListener("mousedown", handleClickOutside);
     }
   }, [isMobile, showSidebar]);
 
@@ -189,7 +196,9 @@ const GroupChatUI = () => {
   useEffect(() => {
     if (downloadError) {
       toast.dismiss(`download-error-${notificationIdCounter}`);
-      toast.error(downloadError, { id: `download-error-${++notificationIdCounter}` });
+      toast.error(downloadError, {
+        id: `download-error-${++notificationIdCounter}`,
+      });
     }
   }, [downloadError]);
 
@@ -199,10 +208,16 @@ const GroupChatUI = () => {
       if (settingsRef.current && !settingsRef.current.contains(event.target)) {
         setShowSettingsDropdown(false);
       }
-      if (userDropdownRef.current && !userDropdownRef.current.contains(event.target)) {
+      if (
+        userDropdownRef.current &&
+        !userDropdownRef.current.contains(event.target)
+      ) {
         setShowUserDropdown(false);
       }
-      if (messageActionsRef.current && !messageActionsRef.current.contains(event.target)) {
+      if (
+        messageActionsRef.current &&
+        !messageActionsRef.current.contains(event.target)
+      ) {
         setShowMessageActions(null);
       }
     };
@@ -298,28 +313,34 @@ const GroupChatUI = () => {
   };
 
   const handleDeleteFile = async (fileId) => {
-    const confirmed = await confirmWithToast("Are you sure you want to delete this file?", () => {
-      setDeletingFileId(fileId);
-      deleteFile(String(fileId));
-      toast.dismiss(`delete-file-${notificationIdCounter}`);
-      toast.success("File deleted successfully", {
-        id: `delete-file-${++notificationIdCounter}`,
-      });
-      setTimeout(() => setDeletingFileId(null), 1000);
-    });
+    const confirmed = await confirmWithToast(
+      "Are you sure you want to delete this file?",
+      () => {
+        setDeletingFileId(fileId);
+        deleteFile(String(fileId));
+        toast.dismiss(`delete-file-${notificationIdCounter}`);
+        toast.success("File deleted successfully", {
+          id: `delete-file-${++notificationIdCounter}`,
+        });
+        setTimeout(() => setDeletingFileId(null), 1000);
+      }
+    );
     if (!confirmed) return;
   };
 
   const handleDeleteVoice = async (voiceId) => {
-    const confirmed = await confirmWithToast("Are you sure you want to delete this voice message?", () => {
-      setDeletingFileId(voiceId);
-      deleteVoice(String(voiceId));
-      toast.dismiss(`delete-voice-${notificationIdCounter}`);
-      toast.success("Voice message deleted successfully", {
-        id: `delete-voice-${++notificationIdCounter}`,
-      });
-      setTimeout(() => setDeletingFileId(null), 1000);
-    });
+    const confirmed = await confirmWithToast(
+      "Are you sure you want to delete this voice message?",
+      () => {
+        setDeletingFileId(voiceId);
+        deleteVoice(String(voiceId));
+        toast.dismiss(`delete-voice-${notificationIdCounter}`);
+        toast.success("Voice message deleted successfully", {
+          id: `delete-voice-${++notificationIdCounter}`,
+        });
+        setTimeout(() => setDeletingFileId(null), 1000);
+      }
+    );
     if (!confirmed) return;
   };
 
@@ -345,11 +366,14 @@ const GroupChatUI = () => {
           });
           return;
         }
-        await uploadVoice(recordedAudio, (progress) => { });
+        await uploadVoice(recordedAudio, (progress) => {});
         toast.dismiss(`voice-upload-${notificationIdCounter}`);
-        toast.success(`Voice message "${recordedAudio.name}" uploaded successfully`, {
-          id: `voice-upload-${++notificationIdCounter}`,
-        });
+        toast.success(
+          `Voice message "${recordedAudio.name}" uploaded successfully`,
+          {
+            id: `voice-upload-${++notificationIdCounter}`,
+          }
+        );
         setRecordedAudio(null);
       }
 
@@ -362,7 +386,7 @@ const GroupChatUI = () => {
           });
           return;
         }
-        await uploadFile(selectedFile, (progress) => { });
+        await uploadFile(selectedFile, (progress) => {});
         toast.dismiss(`file-upload-${notificationIdCounter}`);
         toast.success(`File "${selectedFile.name}" uploaded successfully`, {
           id: `file-upload-${++notificationIdCounter}`,
@@ -378,9 +402,12 @@ const GroupChatUI = () => {
     } catch (error) {
       console.error("Unified send error:", error.message, error.response?.data);
       toast.dismiss(`send-error-${notificationIdCounter}`);
-      toast.error(`Failed to send: ${error.response?.data?.error || error.message}`, {
-        id: `send-error-${++notificationIdCounter}`,
-      });
+      toast.error(
+        `Failed to send: ${error.response?.data?.error || error.message}`,
+        {
+          id: `send-error-${++notificationIdCounter}`,
+        }
+      );
     } finally {
       setIsUploading(false);
     }
@@ -412,16 +439,19 @@ const GroupChatUI = () => {
   };
 
   const handleDeleteMessage = async (messageId) => {
-    const confirmed = await confirmWithToast("Are you sure you want to delete this message?", () => {
-      setIsDeleting(messageId);
-      deleteMessage(String(messageId));
-      setIsDeleting(null);
-      setShowMessageActions(null);
-      toast.dismiss(`delete-message-${notificationIdCounter}`);
-      toast.success("Message deleted successfully", {
-        id: `delete-message-${++notificationIdCounter}`,
-      });
-    });
+    const confirmed = await confirmWithToast(
+      "Are you sure you want to delete this message?",
+      () => {
+        setIsDeleting(messageId);
+        deleteMessage(String(messageId));
+        setIsDeleting(null);
+        setShowMessageActions(null);
+        toast.dismiss(`delete-message-${notificationIdCounter}`);
+        toast.success("Message deleted successfully", {
+          id: `delete-message-${++notificationIdCounter}`,
+        });
+      }
+    );
     if (!confirmed) return;
   };
 
@@ -466,16 +496,19 @@ const GroupChatUI = () => {
   };
 
   const handleLeaveRoom = async (roomId) => {
-    const confirmed = await confirmWithToast("Are you sure you want to leave this room?", () => {
-      setLeavingRoomId(roomId);
-      leaveRoom(roomId);
-      toast.dismiss(`leave-room-${notificationIdCounter}`);
-      toast.success("You have left the room", {
-        id: `leave-room-${++notificationIdCounter}`,
-      });
-      setTimeout(() => setLeavingRoomId(null), 1000);
-      setShowSettingsDropdown(false);
-    });
+    const confirmed = await confirmWithToast(
+      "Are you sure you want to leave this room?",
+      () => {
+        setLeavingRoomId(roomId);
+        leaveRoom(roomId);
+        toast.dismiss(`leave-room-${notificationIdCounter}`);
+        toast.success("You have left the room", {
+          id: `leave-room-${++notificationIdCounter}`,
+        });
+        setTimeout(() => setLeavingRoomId(null), 1000);
+        setShowSettingsDropdown(false);
+      }
+    );
     if (!confirmed) return;
   };
 
@@ -541,7 +574,8 @@ const GroupChatUI = () => {
     return messages
       .filter((item) => String(item.roomId) === String(currentRoom))
       .filter((item) => {
-        if (item.userId === "system" || item.username === "System") return false;
+        if (item.userId === "system" || item.username === "System")
+          return false;
         const systemUploadMessages = [
           "voice message uploaded",
           "file uploaded",
@@ -613,11 +647,13 @@ const GroupChatUI = () => {
       {/* Sidebar */}
       <div
         ref={sidebarRef}
-        className={`${isMobile
-          ? `fixed left-0 top-0 h-full w-80 bg-white shadow-2xl z-50 transform transition-transform duration-300 ${showSidebar ? "translate-x-0" : "-translate-x-full"
-          }`
-          : "w-80 bg-white border-r border-gray-200 shadow-lg"
-          } flex flex-col`}
+        className={`${
+          isMobile
+            ? `fixed left-0 top-0 h-full w-80 bg-white shadow-2xl z-50 transform transition-transform duration-300 ${
+                showSidebar ? "translate-x-0" : "-translate-x-full"
+              }`
+            : "w-80 bg-white border-r border-gray-200 shadow-lg"
+        } flex flex-col`}
       >
         {/* Sidebar Header */}
         <div className="p-4 sm:p-6 border-b border-gray-200 bg-gradient-to-r from-blue-600 to-indigo-600 text-white">
@@ -668,12 +704,16 @@ const GroupChatUI = () => {
                 >
                   <span className="text-gray-700 truncate">
                     {selectedUsers.length > 0
-                      ? `${selectedUsers.length} user${selectedUsers.length > 1 ? "s" : ""} selected`
+                      ? `${selectedUsers.length} user${
+                          selectedUsers.length > 1 ? "s" : ""
+                        } selected`
                       : "Select users..."}
                   </span>
                   <ChevronDown
                     size={16}
-                    className={`transform transition-transform ${showUserDropdown ? "rotate-180" : ""}`}
+                    className={`transform transition-transform ${
+                      showUserDropdown ? "rotate-180" : ""
+                    }`}
                   />
                 </button>
 
@@ -696,20 +736,27 @@ const GroupChatUI = () => {
                     </div>
                     <div className="max-h-40 overflow-y-auto">
                       {filteredUsers.length === 0 ? (
-                        <p className="p-3 text-gray-500 text-sm text-center">No users found</p>
+                        <p className="p-3 text-gray-500 text-sm text-center">
+                          No users found
+                        </p>
                       ) : (
                         filteredUsers.map((u) => (
                           <div
                             key={u.userId}
-                            className={`p-3 cursor-pointer hover:bg-blue-50 flex items-center transition-colors ${selectedUsers.some((s) => String(s.userId) === String(u.userId))
-                              ? "bg-blue-100"
-                              : ""
-                              }`}
+                            className={`p-3 cursor-pointer hover:bg-blue-50 flex items-center transition-colors ${
+                              selectedUsers.some(
+                                (s) => String(s.userId) === String(u.userId)
+                              )
+                                ? "bg-blue-100"
+                                : ""
+                            }`}
                             onClick={() => toggleSelectedUser(u.userId)}
                           >
                             <input
                               type="checkbox"
-                              checked={selectedUsers.some((s) => String(s.userId) === String(u.userId))}
+                              checked={selectedUsers.some(
+                                (s) => String(s.userId) === String(u.userId)
+                              )}
                               onChange={() => toggleSelectedUser(u.userId)}
                               className="mr-3 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                             />
@@ -717,7 +764,9 @@ const GroupChatUI = () => {
                               <div className="text-sm font-medium text-gray-900 truncate">
                                 {u.firstName}
                               </div>
-                              <div className="text-xs text-gray-500 truncate">{u.position}</div>
+                              <div className="text-xs text-gray-500 truncate">
+                                {u.position}
+                              </div>
                             </div>
                           </div>
                         ))
@@ -729,7 +778,9 @@ const GroupChatUI = () => {
 
               {selectedUsers.length > 0 && (
                 <div className="space-y-2">
-                  <div className="text-sm font-medium text-gray-700">Selected users:</div>
+                  <div className="text-sm font-medium text-gray-700">
+                    Selected users:
+                  </div>
                   <div className="flex flex-wrap gap-2">
                     {selectedUsers.map((u) => (
                       <span
@@ -785,10 +836,11 @@ const GroupChatUI = () => {
               {rooms.map((room) => (
                 <div
                   key={room.roomId}
-                  className={`p-3 rounded-lg transition-all ${currentRoom === room.roomId
-                    ? "bg-blue-100 border-l-4 border-blue-500"
-                    : "bg-gray-50 hover:bg-gray-100"
-                    }`}
+                  className={`p-3 rounded-lg transition-all ${
+                    currentRoom === room.roomId
+                      ? "bg-blue-100 border-l-4 border-blue-500"
+                      : "bg-gray-50 hover:bg-gray-100"
+                  }`}
                 >
                   <div className="flex items-center justify-between">
                     <div
@@ -807,8 +859,11 @@ const GroupChatUI = () => {
                       {currentRoom === room.roomId && (
                         <button
                           onClick={() => handleLeaveRoom(room.roomId)}
-                          className={`text-red-500 hover:text-red-700 p-1 ${leavingRoomId === room.roomId ? "opacity-50 cursor-not-allowed" : ""
-                            }`}
+                          className={`text-red-500 hover:text-red-700 p-1 ${
+                            leavingRoomId === room.roomId
+                              ? "opacity-50 cursor-not-allowed"
+                              : ""
+                          }`}
                           title="Leave room"
                           disabled={leavingRoomId === room.roomId}
                         >
@@ -822,8 +877,11 @@ const GroupChatUI = () => {
                       {String(room.createdBy) === String(user.userId) && (
                         <button
                           onClick={() => handleDeleteRoom(room.roomId)}
-                          className={`text-red-500 hover:text-red-700 p-1 ${deletingRoomId === room.roomId ? "opacity-50 cursor-not-allowed" : ""
-                            }`}
+                          className={`text-red-500 hover:text-red-700 p-1 ${
+                            deletingRoomId === room.roomId
+                              ? "opacity-50 cursor-not-allowed"
+                              : ""
+                          }`}
                           title="Delete room"
                           disabled={deletingRoomId === room.roomId}
                         >
@@ -840,7 +898,10 @@ const GroupChatUI = () => {
               ))}
               {rooms.length === 0 && (
                 <div className="text-center py-8 text-gray-500">
-                  <MessageCircle size={32} className="mx-auto mb-2 opacity-50" />
+                  <MessageCircle
+                    size={32}
+                    className="mx-auto mb-2 opacity-50"
+                  />
                   <p className="text-sm">No rooms available</p>
                   <p className="text-xs">Create a room to start chatting</p>
                 </div>
@@ -899,7 +960,9 @@ const GroupChatUI = () => {
                         currentRoomData,
                         userId: user.userId,
                         createdBy: currentRoomData.createdBy,
-                        isCreator: String(currentRoomData.createdBy) === String(user.userId),
+                        isCreator:
+                          String(currentRoomData.createdBy) ===
+                          String(user.userId),
                       });
                       setShowSettingsDropdown(!showSettingsDropdown);
                     }}
@@ -964,8 +1027,13 @@ const GroupChatUI = () => {
           {!currentRoom ? (
             <div className="flex items-center justify-center h-full">
               <div className="text-center">
-                <MessageCircle size={48} className="mx-auto mb-4 text-gray-400" />
-                <p className="text-gray-500 text-lg font-medium">Welcome to the chat!</p>
+                <MessageCircle
+                  size={48}
+                  className="mx-auto mb-4 text-gray-400"
+                />
+                <p className="text-gray-500 text-lg font-medium">
+                  Welcome to the chat!
+                </p>
                 <p className="text-gray-400 text-sm">
                   Select a room from the sidebar to start chatting
                 </p>
@@ -974,8 +1042,13 @@ const GroupChatUI = () => {
           ) : allItems.length === 0 ? (
             <div className="flex items-center justify-center h-full">
               <div className="text-center">
-                <MessageCircle size={48} className="mx-auto mb-4 text-gray-400" />
-                <p className="text-gray-500 text-lg font-medium">No messages yet</p>
+                <MessageCircle
+                  size={48}
+                  className="mx-auto mb-4 text-gray-400"
+                />
+                <p className="text-gray-500 text-lg font-medium">
+                  No messages yet
+                </p>
                 <p className="text-gray-400 text-sm">
                   Start the conversation by sending a message
                 </p>
@@ -985,13 +1058,16 @@ const GroupChatUI = () => {
             allItems.map((item) => (
               <div
                 key={`${item.type}-${item.id}`}
-                className={`flex ${item.userId === user.userId ? "justify-end" : "justify-start"}`}
+                className={`flex ${
+                  item.userId === user.userId ? "justify-end" : "justify-start"
+                }`}
               >
                 <div
-                  className={`max-w-xs sm:max-w-md lg:max-w-lg xl:max-w-xl relative group ${item.userId === user.userId
-                    ? "bg-blue-600 text-white rounded-tl-2xl rounded-tr-sm rounded-bl-2xl rounded-br-2xl"
-                    : "bg-white text-gray-900 rounded-tl-sm rounded-tr-2xl rounded-bl-2xl rounded-br-2xl border border-gray-200"
-                    } p-4 shadow-sm`}
+                  className={`max-w-xs sm:max-w-md lg:max-w-lg xl:max-w-xl relative group ${
+                    item.userId === user.userId
+                      ? "bg-blue-600 text-white rounded-tl-2xl rounded-tr-sm rounded-bl-2xl rounded-br-2xl"
+                      : "bg-white text-gray-900 rounded-tl-sm rounded-tr-2xl rounded-bl-2xl rounded-br-2xl border border-gray-200"
+                  } p-4 shadow-sm`}
                 >
                   {/* Message Actions */}
                   {item.userId === user.userId && (
@@ -1013,7 +1089,9 @@ const GroupChatUI = () => {
                             <div className="py-1">
                               {item.type === "message" && (
                                 <button
-                                  onClick={() => handleEditMessage(item.id, item.content)}
+                                  onClick={() =>
+                                    handleEditMessage(item.id, item.content)
+                                  }
                                   className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
                                 >
                                   Edit
@@ -1024,7 +1102,9 @@ const GroupChatUI = () => {
                                 className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50"
                                 disabled={isDeleting === item.id}
                               >
-                                {isDeleting === item.id ? "Deleting..." : "Delete"}
+                                {isDeleting === item.id
+                                  ? "Deleting..."
+                                  : "Delete"}
                               </button>
                             </div>
                           </div>
@@ -1036,13 +1116,20 @@ const GroupChatUI = () => {
                   {/* Message Header */}
                   <div className="flex items-center justify-between mb-1 gap-10">
                     <span
-                      className={`text-xs font-medium ${item.userId === user.userId ? "text-blue-100" : "text-gray-600"
-                        }`}
+                      className={`text-xs font-medium ${
+                        item.userId === user.userId
+                          ? "text-blue-100"
+                          : "text-gray-600"
+                      }`}
                     >
                       {item.username}
                     </span>
                     <span
-                      className={`text-xs ${item.userId === user.userId ? "text-blue-100" : "text-gray-500"}`}
+                      className={`text-xs ${
+                        item.userId === user.userId
+                          ? "text-blue-100"
+                          : "text-gray-500"
+                      }`}
                     >
                       {new Date(item.timestamp).toLocaleTimeString([], {
                         hour: "2-digit",
@@ -1056,7 +1143,10 @@ const GroupChatUI = () => {
 
                   {/* Message Content */}
                   {editingMessageId === item.id ? (
-                    <form onSubmit={(e) => handleSaveEdit(e, item.id)} className="space-y-2">
+                    <form
+                      onSubmit={(e) => handleSaveEdit(e, item.id)}
+                      className="space-y-2"
+                    >
                       <textarea
                         value={editContent}
                         onChange={(e) => setEditContent(e.target.value)}
@@ -1083,14 +1173,18 @@ const GroupChatUI = () => {
                   ) : (
                     <>
                       {item.type === "message" && (
-                        <p className="text-sm leading-relaxed break-words">{item.content}</p>
+                        <p className="text-sm leading-relaxed break-words">
+                          {item.content}
+                        </p>
                       )}
 
                       {item.type === "file" && item.file && (
                         <div className="space-y-2">
                           <div className="flex items-center space-x-2">
                             <Paperclip size={16} />
-                            <span className="text-sm font-medium">{item.file.originalName}</span>
+                            <span className="text-sm font-medium">
+                              {item.file.originalName}
+                            </span>
                           </div>
                           <div className="text-xs opacity-75">
                             Size: {(item.file.size / 1024).toFixed(1)} KB
@@ -1098,10 +1192,15 @@ const GroupChatUI = () => {
                           <div className="flex items-center space-x-2">
                             <button
                               onClick={() => handleFileClick(item.id)}
-                              className={`inline-flex items-center px-3 py-1 text-xs rounded transition-colors ${item.userId === user.userId
-                                ? "bg-blue-500 hover:bg-blue-400 text-white"
-                                : "bg-blue-600 hover:bg-blue-700 text-white"
-                                } ${downloadingFileId === item.id ? "opacity-50 cursor-not-allowed" : ""}`}
+                              className={`inline-flex items-center px-3 py-1 text-xs rounded transition-colors ${
+                                item.userId === user.userId
+                                  ? "bg-blue-500 hover:bg-blue-400 text-white"
+                                  : "bg-blue-600 hover:bg-blue-700 text-white"
+                              } ${
+                                downloadingFileId === item.id
+                                  ? "opacity-50 cursor-not-allowed"
+                                  : ""
+                              }`}
                               disabled={downloadingFileId === item.id}
                             >
                               {downloadingFileId === item.id ? (
@@ -1114,8 +1213,11 @@ const GroupChatUI = () => {
                             {item.userId === user.userId && (
                               <button
                                 onClick={() => handleDeleteFile(item.id)}
-                                className={`inline-flex items-center px-3 py-1 text-xs rounded transition-colors bg-red-600 hover:bg-red-700 text-white ${deletingFileId === item.id ? "opacity-50 cursor-not-allowed" : ""
-                                  }`}
+                                className={`inline-flex items-center px-3 py-1 text-xs rounded transition-colors bg-red-600 hover:bg-red-700 text-white ${
+                                  deletingFileId === item.id
+                                    ? "opacity-50 cursor-not-allowed"
+                                    : ""
+                                }`}
                                 disabled={deletingFileId === item.id}
                               >
                                 {deletingFileId === item.id ? (
@@ -1130,46 +1232,76 @@ const GroupChatUI = () => {
                         </div>
                       )}
 
-                        {item.type === "voice" && item.voice && (
-                          <div className="space-y-2">
-                            <div className="flex items-center space-x-2">
-                              <Mic size={16} />
-                              <span className="text-sm font-medium">Voice Message</span>
-                            </div>
-                            <div className="flex items-center space-x-2">
+                      {item.type === "voice" && item.voice && (
+                        <div className="space-y-2">
+                          <div className="flex items-center space-x-2">
+                            <Mic size={16} />
+                            <span className="text-sm font-medium">
+                              Voice Message
+                            </span>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <button
+                              onClick={() => playVoice(item.id)}
+                              className={`inline-flex items-center px-3 py-1 text-xs rounded transition-colors ${
+                                item.userId === user.userId
+                                  ? "bg-blue-500 hover:bg-blue-400 text-white"
+                                  : "bg-blue-600 hover:bg-blue-700 text-white"
+                              } ${
+                                playingVoiceId === item.id
+                                  ? "opacity-50 cursor-not-allowed"
+                                  : ""
+                              }`}
+                              disabled={playingVoiceId === item.id}
+                            >
+                              {playingVoiceId === item.id ? (
+                                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-1"></div>
+                              ) : (
+                                <Play size={12} className="mr-1" />
+                              )}
+                              Play
+                            </button>
+                            <button
+                              onClick={() => handleVoiceClick(item.id)}
+                              className={`inline-flex items-center px-3 py-1 text-xs rounded transition-colors ${
+                                item.userId === user.userId
+                                  ? "bg-blue-500 hover:bg-blue-400 text-white"
+                                  : "bg-blue-600 hover:bg-blue-700 text-white"
+                              } ${
+                                downloadingVoiceId === item.id
+                                  ? "opacity-50 cursor-not-allowed"
+                                  : ""
+                              }`}
+                              disabled={downloadingVoiceId === item.id}
+                            >
+                              {downloadingVoiceId === item.id ? (
+                                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-1"></div>
+                              ) : (
+                                <Download size={12} className="mr-1" />
+                              )}
+                              Download
+                            </button>
+                            {item.userId === user.userId && (
                               <button
-                                onClick={() => playVoice(item.id)}
-                                className={`inline-flex items-center px-3 py-1 text-xs rounded transition-colors ${item.userId === user.userId
-                                    ? "bg-blue-500 hover:bg-blue-400 text-white"
-                                    : "bg-blue-600 hover:bg-blue-700 text-white"
-                                  } ${playingVoiceId === item.id ? "opacity-50 cursor-not-allowed" : ""}`}
-                                disabled={playingVoiceId === item.id}
+                                onClick={() => handleDeleteVoice(item.id)}
+                                className={`inline-flex items-center px-3 py-1 text-xs rounded transition-colors bg-red-600 hover:bg-red-700 text-white ${
+                                  deletingFileId === item.id
+                                    ? "opacity-50 cursor-not-allowed"
+                                    : ""
+                                }`}
+                                disabled={deletingFileId === item.id}
                               >
-                                {playingVoiceId === item.id ? (
+                                {deletingFileId === item.id ? (
                                   <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-1"></div>
                                 ) : (
-                                  <Play size={12} className="mr-1" /> // Changed from Download to Play
+                                  <Trash2 size={12} className="mr-1" />
                                 )}
-                                Play
+                                Delete
                               </button>
-                              {item.userId === user.userId && (
-                                <button
-                                  onClick={() => handleDeleteVoice(item.id)}
-                                  className={`inline-flex items-center px-3 py-1 text-xs rounded transition-colors bg-red-600 hover:bg-red-700 text-white ${deletingFileId === item.id ? "opacity-50 cursor-not-allowed" : ""
-                                    }`}
-                                  disabled={deletingFileId === item.id}
-                                >
-                                  {deletingFileId === item.id ? (
-                                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-1"></div>
-                                  ) : (
-                                    <Trash2 size={12} className="mr-1" />
-                                  )}
-                                  Delete
-                                </button>
-                              )}
-                            </div>
+                            )}
                           </div>
-                        )}
+                        </div>
+                      )}
                     </>
                   )}
                 </div>
@@ -1193,13 +1325,17 @@ const GroupChatUI = () => {
                         <span className="font-medium text-blue-800 truncate max-w-48">
                           {selectedFile.name}
                         </span>
-                        <span className="text-blue-600">({(selectedFile.size / 1024).toFixed(1)} KB)</span>
+                        <span className="text-blue-600">
+                          ({(selectedFile.size / 1024).toFixed(1)} KB)
+                        </span>
                       </>
                     )}
                     {recordedAudio && (
                       <>
                         <Mic size={16} className="text-blue-600" />
-                        <span className="font-medium text-blue-800">Voice message ready</span>
+                        <span className="font-medium text-blue-800">
+                          Voice message ready
+                        </span>
                       </>
                     )}
                   </div>
@@ -1219,13 +1355,18 @@ const GroupChatUI = () => {
               </div>
             )}
 
-            <form onSubmit={handleUnifiedSend} className="flex items-end space-x-3">
+            <form
+              onSubmit={handleUnifiedSend}
+              className="flex items-end space-x-3"
+            >
               <div className="flex-1 relative">
                 <textarea
                   value={messageContent}
                   onChange={handleInputChange}
                   placeholder={
-                    selectedFile || recordedAudio ? "Add a message (optional)..." : "Type your message..."
+                    selectedFile || recordedAudio
+                      ? "Add a message (optional)..."
+                      : "Type your message..."
                   }
                   className="w-full p-3 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                   rows="1"
@@ -1236,7 +1377,8 @@ const GroupChatUI = () => {
                   }}
                   onInput={(e) => {
                     e.target.style.height = "auto";
-                    e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
+                    e.target.style.height =
+                      Math.min(e.target.scrollHeight, 120) + "px";
                   }}
                 />
               </div>
@@ -1265,11 +1407,14 @@ const GroupChatUI = () => {
                 <button
                   type="button"
                   onClick={isRecording ? stopRecording : startRecording}
-                  className={`p-2 rounded-lg transition-colors ${isRecording
-                    ? "text-red-600 bg-red-50 hover:bg-red-100"
-                    : "text-gray-500 hover:text-red-600 hover:bg-red-50"
-                    }`}
-                  title={isRecording ? "Stop recording" : "Start voice recording"}
+                  className={`p-2 rounded-lg transition-colors ${
+                    isRecording
+                      ? "text-red-600 bg-red-50 hover:bg-red-100"
+                      : "text-gray-500 hover:text-red-600 hover:bg-red-50"
+                  }`}
+                  title={
+                    isRecording ? "Stop recording" : "Start voice recording"
+                  }
                 >
                   {isRecording ? (
                     <StopCircle size={20} className="animate-pulse" />
@@ -1281,7 +1426,10 @@ const GroupChatUI = () => {
                 {/* Send Button */}
                 <button
                   type="submit"
-                  disabled={isUploading || (!messageContent.trim() && !selectedFile && !recordedAudio)}
+                  disabled={
+                    isUploading ||
+                    (!messageContent.trim() && !selectedFile && !recordedAudio)
+                  }
                   className="bg-blue-600 text-white p-2 rounded-lg hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed transition-colors flex items-center justify-center min-w-[44px]"
                   title="Send message"
                 >
@@ -1297,7 +1445,6 @@ const GroupChatUI = () => {
         )}
       </div>
     </div>
-    
   );
 };
 
