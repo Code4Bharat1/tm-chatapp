@@ -10,6 +10,7 @@ import {
   Mic,
   MoreVertical,
   Paperclip,
+  Plus,
   Search,
   Send,
   Settings,
@@ -17,10 +18,11 @@ import {
   Trash2,
   Users,
   X,
+  Play // Add this
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import FloatingButtons from "./FloatingButtons";
 import toast, { Toaster } from "react-hot-toast";
-import FloatingButtons from "./FloatingButtons"; // Adjust the import path as needed
 
 // Counter for generating unique notification IDs
 let notificationIdCounter = 0;
@@ -34,6 +36,7 @@ const GroupChatUI = () => {
     groupName,
     user,
     companyUsers,
+    selectedUsers,
     rooms,
     currentRoom,
     sendMessage,
@@ -43,6 +46,9 @@ const GroupChatUI = () => {
     initializeSocket,
     fetchUser,
     fetchCompanyUsers,
+    toggleSelectedUser,
+    clearSelectedUsers,
+    createRoom,
     joinRoom,
     leaveRoom,
     deleteRoom,
@@ -67,6 +73,10 @@ const GroupChatUI = () => {
   const [editContent, setEditContent] = useState("");
   const [isDeleting, setIsDeleting] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [roomName, setRoomName] = useState("");
+  const [showCreateRoom, setShowCreateRoom] = useState(false);
+  const [showUserDropdown, setShowUserDropdown] = useState(false);
+  const [searchUsers, setSearchUsers] = useState("");
   const [leavingRoomId, setLeavingRoomId] = useState(null);
   const [deletingRoomId, setDeletingRoomId] = useState(null);
   const [showSettingsDropdown, setShowSettingsDropdown] = useState(false);
@@ -77,6 +87,7 @@ const GroupChatUI = () => {
   const [recordedAudio, setRecordedAudio] = useState(null);
   const [downloadingVoiceId, setDownloadingVoiceId] = useState(null);
   const [deletingFileId, setDeletingFileId] = useState(null);
+  const [playingVoiceId, setPlayingVoiceId] = useState(null);
 
   // Mobile responsive states
   const [isMobile, setIsMobile] = useState(false);
@@ -85,6 +96,7 @@ const GroupChatUI = () => {
   const [showOnlineUsers, setShowOnlineUsers] = useState(false);
 
   const settingsRef = useRef(null);
+  const userDropdownRef = useRef(null);
   const messageActionsRef = useRef(null);
   const fileInputRef = useRef(null);
   const mediaRecorderRef = useRef(null);
@@ -92,6 +104,27 @@ const GroupChatUI = () => {
   const messagesEndRef = useRef(null);
   const sidebarRef = useRef(null);
 
+  const playVoice = async (voiceId) => {
+    try {
+      setPlayingVoiceId(voiceId);
+      const voice = uploadedVoices.find((v) => String(v._id) === String(voiceId));
+
+      if (!voice) {
+        throw new Error("Voice message not found");
+      }
+
+      // Create a new audio element and play
+      const audio = new Audio(voice.voice.url);
+      audio.play();
+
+      // Reset when playback ends
+      audio.onended = () => setPlayingVoiceId(null);
+    } catch (error) {
+      console.error("Error playing voice:", error);
+      toast.error("Failed to play voice message");
+      setPlayingVoiceId(null);
+    }
+  };
   // Mobile detection and resize handler
   useEffect(() => {
     const checkIsMobile = () => {
@@ -165,6 +198,9 @@ const GroupChatUI = () => {
     const handleClickOutside = (event) => {
       if (settingsRef.current && !settingsRef.current.contains(event.target)) {
         setShowSettingsDropdown(false);
+      }
+      if (userDropdownRef.current && !userDropdownRef.current.contains(event.target)) {
+        setShowUserDropdown(false);
       }
       if (messageActionsRef.current && !messageActionsRef.current.contains(event.target)) {
         setShowMessageActions(null);
@@ -394,6 +430,34 @@ const GroupChatUI = () => {
     if (error) clearError();
   };
 
+  const handleCreateRoom = (e) => {
+    e.preventDefault();
+    if (!roomName.trim()) {
+      toast.dismiss(`no-room-name-${notificationIdCounter}`);
+      toast.error("Room name is required", {
+        id: `no-room-name-${++notificationIdCounter}`,
+      });
+      return;
+    }
+    if (selectedUsers.length === 0) {
+      toast.dismiss(`no-users-${notificationIdCounter}`);
+      toast.error("Select at least one user for the room", {
+        id: `no-users-${++notificationIdCounter}`,
+      });
+      return;
+    }
+    const userIds = selectedUsers.map((u) => u.userId);
+    createRoom(roomName, userIds);
+    setRoomName("");
+    clearSelectedUsers();
+    setShowCreateRoom(false);
+    setSearchUsers("");
+    toast.dismiss(`create-room-${notificationIdCounter}`);
+    toast.success("Room created successfully", {
+      id: `create-room-${++notificationIdCounter}`,
+    });
+  };
+
   const handleJoinRoom = (roomId) => {
     joinRoom(roomId);
     if (isMobile) {
@@ -466,6 +530,12 @@ const GroupChatUI = () => {
     }
     setTimeout(() => setDownloadingVoiceId(null), 1000);
   };
+
+  const filteredUsers = companyUsers.filter(
+    (u) =>
+      u.firstName.toLowerCase().includes(searchUsers.toLowerCase()) ||
+      u.position.toLowerCase().includes(searchUsers.toLowerCase())
+  );
 
   const allItems = useMemo(() => {
     return messages
@@ -544,7 +614,8 @@ const GroupChatUI = () => {
       <div
         ref={sidebarRef}
         className={`${isMobile
-          ? `fixed left-0 top-0 h-full w-80 bg-white shadow-2xl z-50 transform transition-transform duration-300 ${showSidebar ? "translate-x-0" : "-translate-x-full"}`
+          ? `fixed left-0 top-0 h-full w-80 bg-white shadow-2xl z-50 transform transition-transform duration-300 ${showSidebar ? "translate-x-0" : "-translate-x-full"
+          }`
           : "w-80 bg-white border-r border-gray-200 shadow-lg"
           } flex flex-col`}
       >
@@ -555,18 +626,153 @@ const GroupChatUI = () => {
               <MessageCircle className="mr-2" size={isMobile ? 20 : 24} />
               Chat Rooms
             </h1>
-            {isMobile && (
-              <button
-                onClick={() => setShowSidebar(false)}
+            <div className="flex items-center space-x-2">
+              {/* <button
+                onClick={() => setShowCreateRoom(!showCreateRoom)}
                 className="bg-white/20 hover:bg-white/30 p-2 rounded-lg transition-colors"
-                title="Close sidebar"
+                title="Create new room"
               >
-                <X size={18} />
-              </button>
-            )}
+                <Plus size={18} />
+              </button> */}
+              {isMobile && (
+                <button
+                  onClick={() => setShowSidebar(false)}
+                  className="bg-white/20 hover:bg-white/30 p-2 rounded-lg transition-colors"
+                  title="Close sidebar"
+                >
+                  <X size={18} />
+                </button>
+              )}
+            </div>
           </div>
           <div className="text-sm opacity-90">Welcome, {user.firstName}</div>
         </div>
+
+        {/* Create Room Form */}
+        {showCreateRoom && (
+          <div className="p-4 border-b border-gray-200 bg-blue-50">
+            <div className="space-y-3">
+              <input
+                type="text"
+                value={roomName}
+                onChange={(e) => setRoomName(e.target.value)}
+                placeholder="Enter room name..."
+                className="w-full p-3 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+
+              <div className="relative" ref={userDropdownRef}>
+                <button
+                  type="button"
+                  onClick={() => setShowUserDropdown(!showUserDropdown)}
+                  className="w-full p-3 border border-gray-300 rounded-lg text-sm bg-white flex items-center justify-between hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <span className="text-gray-700 truncate">
+                    {selectedUsers.length > 0
+                      ? `${selectedUsers.length} user${selectedUsers.length > 1 ? "s" : ""} selected`
+                      : "Select users..."}
+                  </span>
+                  <ChevronDown
+                    size={16}
+                    className={`transform transition-transform ${showUserDropdown ? "rotate-180" : ""}`}
+                  />
+                </button>
+
+                {showUserDropdown && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-300 rounded-lg shadow-lg z-10 max-h-60 overflow-hidden">
+                    <div className="p-2 border-b border-gray-200">
+                      <div className="relative">
+                        <Search
+                          size={16}
+                          className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"
+                        />
+                        <input
+                          type="text"
+                          placeholder="Search users..."
+                          value={searchUsers}
+                          onChange={(e) => setSearchUsers(e.target.value)}
+                          className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                      </div>
+                    </div>
+                    <div className="max-h-40 overflow-y-auto">
+                      {filteredUsers.length === 0 ? (
+                        <p className="p-3 text-gray-500 text-sm text-center">No users found</p>
+                      ) : (
+                        filteredUsers.map((u) => (
+                          <div
+                            key={u.userId}
+                            className={`p-3 cursor-pointer hover:bg-blue-50 flex items-center transition-colors ${selectedUsers.some((s) => String(s.userId) === String(u.userId))
+                              ? "bg-blue-100"
+                              : ""
+                              }`}
+                            onClick={() => toggleSelectedUser(u.userId)}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedUsers.some((s) => String(s.userId) === String(u.userId))}
+                              onChange={() => toggleSelectedUser(u.userId)}
+                              className="mr-3 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm font-medium text-gray-900 truncate">
+                                {u.firstName}
+                              </div>
+                              <div className="text-xs text-gray-500 truncate">{u.position}</div>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {selectedUsers.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-sm font-medium text-gray-700">Selected users:</div>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedUsers.map((u) => (
+                      <span
+                        key={u.userId}
+                        className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800"
+                      >
+                        <span className="truncate max-w-20">{u.firstName}</span>
+                        <button
+                          type="button"
+                          onClick={() => toggleSelectedUser(u.userId)}
+                          className="ml-1 hover:text-blue-600"
+                        >
+                          <X size={12} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex space-x-2">
+                <button
+                  onClick={handleCreateRoom}
+                  className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed transition-colors"
+                  disabled={!roomName.trim() || selectedUsers.length === 0}
+                >
+                  Create Room
+                </button>
+                <button
+                  onClick={() => {
+                    setShowCreateRoom(false);
+                    setRoomName("");
+                    clearSelectedUsers();
+                    setSearchUsers("");
+                  }}
+                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-300 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Rooms List */}
         <div className="flex-1 overflow-y-auto">
@@ -601,7 +807,8 @@ const GroupChatUI = () => {
                       {currentRoom === room.roomId && (
                         <button
                           onClick={() => handleLeaveRoom(room.roomId)}
-                          className={`text-red-500 hover:text-red-700 p-1 ${leavingRoomId === room.roomId ? "opacity-50 cursor-not-allowed" : ""}`}
+                          className={`text-red-500 hover:text-red-700 p-1 ${leavingRoomId === room.roomId ? "opacity-50 cursor-not-allowed" : ""
+                            }`}
                           title="Leave room"
                           disabled={leavingRoomId === room.roomId}
                         >
@@ -615,7 +822,8 @@ const GroupChatUI = () => {
                       {String(room.createdBy) === String(user.userId) && (
                         <button
                           onClick={() => handleDeleteRoom(room.roomId)}
-                          className={`text-red-500 hover:text-red-700 p-1 ${deletingRoomId === room.roomId ? "opacity-50 cursor-not-allowed" : ""}`}
+                          className={`text-red-500 hover:text-red-700 p-1 ${deletingRoomId === room.roomId ? "opacity-50 cursor-not-allowed" : ""
+                            }`}
                           title="Delete room"
                           disabled={deletingRoomId === room.roomId}
                         >
@@ -634,13 +842,12 @@ const GroupChatUI = () => {
                 <div className="text-center py-8 text-gray-500">
                   <MessageCircle size={32} className="mx-auto mb-2 opacity-50" />
                   <p className="text-sm">No rooms available</p>
-                  <p className="text-xs">Join a room to start chatting</p>
+                  <p className="text-xs">Create a room to start chatting</p>
                 </div>
               )}
             </div>
           </div>
         </div>
-
         {/* Floating Buttons Area */}
         <div className="p-8  border-t border-gray-200 bg-white">
           <FloatingButtons />
@@ -923,47 +1130,46 @@ const GroupChatUI = () => {
                         </div>
                       )}
 
-                      {item.type === "voice" && item.voice && (
-                        <div className="space-y-2">
-                          <div className="flex items-center space-x-2">
-                            <Mic size={16} />
-                            <span className="text-sm font-medium">Voice Message</span>
-                          </div>
-                          <div className="text-xs opacity-75">Duration: {item.voice.originalName}</div>
-                          <div className="flex items-center space-x-2">
-                            <button
-                              onClick={() => handleVoiceClick(item.id)}
-                              className={`inline-flex items-center px-3 py-1 text-xs rounded transition-colors ${item.userId === user.userId
-                                ? "bg-blue-500 hover:bg-blue-400 text-white"
-                                : "bg-blue-600 hover:bg-blue-700 text-white"
-                                } ${downloadingVoiceId === item.id ? "opacity-50 cursor-not-allowed" : ""}`}
-                              disabled={downloadingVoiceId === item.id}
-                            >
-                              {downloadingVoiceId === item.id ? (
-                                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-1"></div>
-                              ) : (
-                                <Download size={12} className="mr-1" />
-                              )}
-                              Play/Download
-                            </button>
-                            {item.userId === user.userId && (
+                        {item.type === "voice" && item.voice && (
+                          <div className="space-y-2">
+                            <div className="flex items-center space-x-2">
+                              <Mic size={16} />
+                              <span className="text-sm font-medium">Voice Message</span>
+                            </div>
+                            <div className="flex items-center space-x-2">
                               <button
-                                onClick={() => handleDeleteVoice(item.id)}
-                                className={`inline-flex items-center px-3 py-1 text-xs rounded transition-colors bg-red-600 hover:bg-red-700 text-white ${deletingFileId === item.id ? "opacity-50 cursor-not-allowed" : ""
-                                  }`}
-                                disabled={deletingFileId === item.id}
+                                onClick={() => playVoice(item.id)}
+                                className={`inline-flex items-center px-3 py-1 text-xs rounded transition-colors ${item.userId === user.userId
+                                    ? "bg-blue-500 hover:bg-blue-400 text-white"
+                                    : "bg-blue-600 hover:bg-blue-700 text-white"
+                                  } ${playingVoiceId === item.id ? "opacity-50 cursor-not-allowed" : ""}`}
+                                disabled={playingVoiceId === item.id}
                               >
-                                {deletingFileId === item.id ? (
+                                {playingVoiceId === item.id ? (
                                   <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-1"></div>
                                 ) : (
-                                  <Trash2 size={12} className="mr-1" />
+                                  <Play size={12} className="mr-1" /> // Changed from Download to Play
                                 )}
-                                Delete
+                                Play
                               </button>
-                            )}
+                              {item.userId === user.userId && (
+                                <button
+                                  onClick={() => handleDeleteVoice(item.id)}
+                                  className={`inline-flex items-center px-3 py-1 text-xs rounded transition-colors bg-red-600 hover:bg-red-700 text-white ${deletingFileId === item.id ? "opacity-50 cursor-not-allowed" : ""
+                                    }`}
+                                  disabled={deletingFileId === item.id}
+                                >
+                                  {deletingFileId === item.id ? (
+                                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-1"></div>
+                                  ) : (
+                                    <Trash2 size={12} className="mr-1" />
+                                  )}
+                                  Delete
+                                </button>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      )}
+                        )}
                     </>
                   )}
                 </div>
@@ -1091,6 +1297,7 @@ const GroupChatUI = () => {
         )}
       </div>
     </div>
+    
   );
 };
 
